@@ -64,11 +64,20 @@ workflows/
 │       └── action.yml
 │
 ├── scripts/                 # Utility scripts
-│   └── cleanup-temp.sh
+│   ├── cleanup-temp.sh
+│   └── package-configs.sh   # Package configs for releases
+│
+├── configs/                 # Shared configuration files
+│   └── nginx.conf          # Default nginx configuration
+│
+├── dockerfiles/            # Shared Dockerfiles
+│   ├── Dockerfile.javascript
+│   └── Dockerfile.javascript-with-configs
 │
 └── docs/                    # Documentation
     ├── usage.md
-    └── conventions.md
+    ├── conventions.md
+    └── configuration-files.md  # Config file usage guide
 ```
 
 ## Usage
@@ -154,6 +163,7 @@ jobs:
 - **lint.yml** - Multi-language linting and code quality checks
 - **node-ci.yml** - Complete Node.js CI workflow with pnpm support
 - **node-ci-simple.yml** - Simplified Node.js CI in a single job
+- **docker-build.yml** - Multi-registry Docker build and push workflow with config file support
 
 ### Technology-Specific Workflows
 
@@ -167,6 +177,17 @@ jobs:
 **Note**: These actions can only be used directly in your workflows, NOT within our reusable workflows.
 
 - **actions/setup-pnpm** - pnpm setup with automatic caching (see [usage notes](actions/setup-pnpm/README.md))
+
+## Automated Releases
+
+This repository automatically creates releases when changes are pushed to the `dockerfiles/` or `configs/` directories:
+
+- **Automatic version bumping** based on commit messages:
+  - `feat!:` or `feature!:` → Major version bump (breaking changes)
+  - `feat:` or `feature:` → Minor version bump (new features)
+  - Other commits → Patch version bump (fixes and updates)
+- **Manual releases** via workflow dispatch with custom version bump level
+- **Release assets** automatically include `dockerfiles.tar.gz` and `configs.tar.gz`
 
 ## Contributing
 

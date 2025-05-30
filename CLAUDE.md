@@ -23,6 +23,11 @@ workflows/
 ├── .github/
 │   └── workflows/           # All workflows - both internal and reusable
 │       ├── ci.yml           # Internal: CI for this repository
+│       ├── release.yml      # Internal: Automated release creation
+│       ├── test-workflows.yml # Internal: Test workflow syntax
+│       ├── node-ci.yml      # Reusable: Complete Node.js CI workflow
+│       ├── node-ci-simple.yml # Reusable: Simplified Node.js CI
+│       ├── docker-build.yml # Reusable: Multi-registry Docker build
 │       ├── build.yml        # Reusable: shared build pipeline
 │       ├── test.yml         # Reusable: shared testing pipeline
 │       ├── deploy.yml       # Reusable: deploy to staging/production
@@ -32,12 +37,28 @@ workflows/
 │       ├── docker-deploy.yml # Reusable: Docker-based deployment
 │       └── notify-slack.yml # Reusable: Slack notifications
 │
-├── scripts/                 # Utility scripts used in workflows (bash, Python, etc.)
-│   └── cleanup-temp.sh
+├── actions/                 # Composite actions for reusable steps
+│   └── setup-pnpm/          # pnpm setup with caching
+│       ├── action.yml
+│       └── README.md
 │
-└── docs/                    # Documentation for workflows and usage patterns
+├── dockerfiles/             # Dockerfiles for different build flavors
+│   └── Dockerfile.javascript
+│
+├── configs/                 # Configuration files for Docker builds
+│   └── nginx.conf
+│
+├── scripts/                 # Utility scripts
+│   ├── prepare-release.sh   # Create release archives
+│   └── test-*.sh           # Test scripts
+│
+└── docs/                    # Documentation
     ├── usage.md
-    └── conventions.md
+    ├── conventions.md
+    ├── configuration-files.md
+    └── examples/
+        ├── node-pnpm-ci.md
+        └── docker-build.md
 ```
 
 ### Workflow Organization

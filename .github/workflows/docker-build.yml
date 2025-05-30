@@ -1,0 +1,335 @@
+name: Docker Build and Push
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: false
+        default: ${{ github.ref_name }}
+        type: string
+      flavor:
+        description: 'Build flavor (golang, javascript, python, etc.)'
+        required: false
+        type: string
+        default: golang
+      registry_name:
+        description: 'Container registry (gcr.io, docker.io)'
+        required: false
+        type: string
+        default: gcr.io
+      build_dir:
+        description: 'Build directory path'
+        required: false
+        type: string
+        default: build
+      pre_build:
+        description: 'Run a pre-build target'
+        default: false
+        required: false
+        type: boolean
+      use_default_dockerfiles:
+        description: 'Use default Dockerfiles from workflow-calls repo'
+        default: true
+        required: false
+        type: boolean
+      download_configs:
+        description: 'Download config files (*.conf) from workflow-calls repo'
+        default: true
+        required: false
+        type: boolean
+      runs_on:
+        description: 'Runner OS specification'
+        required: false
+        type: string
+        default: "ubuntu-22.04"
+      dockerfile_path:
+        description: 'Custom Dockerfile path (defaults to Dockerfile.<flavor>)'
+        required: false
+        type: string
+        default: ''
+      context_path:
+        description: 'Docker build context path'
+        required: false
+        type: string
+        default: '.'
+      platforms:
+        description: 'Comma-separated list of target platforms (e.g., linux/amd64,linux/arm64)'
+        required: false
+        type: string
+        default: 'linux/amd64'
+      cache_from:
+        description: 'List of external cache sources'
+        required: false
+        type: string
+        default: ''
+      cache_to:
+        description: 'List of cache export destinations'
+        required: false
+        type: string
+        default: ''
+      additional_tags:
+        description: 'Additional tags to apply (comma-separated)'
+        required: false
+        type: string
+        default: ''
+      extra_build_args:
+        description: 'Extra build arguments (newline-separated KEY=VALUE pairs)'
+        required: false
+        type: string
+        default: ''
+    secrets:
+      registry_user:
+        description: 'Registry username (for non-GCR registries)'
+        required: false
+      registry_pass:
+        description: 'Registry password (for non-GCR registries)'
+        required: false
+      git_pass:
+        description: 'GitHub token for accessing resources'
+        required: true
+      build_secrets:
+        description: 'Build-time secrets (e.g., for .env file)'
+        required: false
+      gcp_cloud_run_sa:
+        description: 'GCP service account JSON for Cloud Run'
+        required: false
+      gcp_project_id:
+        description: 'GCP project ID'
+        required: false
+
+jobs:
+  dockerize:
+    name: Build and Push Docker Image
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    runs-on: ${{ inputs.runs_on }}
+    env:
+      TOKEN: ${{ secrets.git_pass }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            network=host
+
+      - name: Get GO version
+        if: ${{ inputs.flavor == 'golang' }}
+        run: |
+          if [ -f go.mod ]; then
+            echo "go_version=$(grep '^go ' go.mod | awk '{print $2}')" >> "$GITHUB_ENV"
+          fi
+
+      - name: Get Node.js version
+        if: ${{ inputs.flavor == 'javascript' || inputs.flavor == 'nodejs' }}
+        run: |
+          if [ -f .nvmrc ]; then
+            echo "node_version=$(cat .nvmrc)" >> "$GITHUB_ENV"
+          elif [ -f package.json ]; then
+            echo "node_version=$(jq -r '.engines.node // "18"' package.json)" >> "$GITHUB_ENV"
+          else
+            echo "node_version=18" >> "$GITHUB_ENV"
+          fi
+
+      - name: Get Python version
+        if: ${{ inputs.flavor == 'python' }}
+        run: |
+          if [ -f .python-version ]; then
+            echo "python_version=$(cat .python-version)" >> "$GITHUB_ENV"
+          elif [ -f pyproject.toml ]; then
+            echo "python_version=$(grep -E '^python = ' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')" >> "$GITHUB_ENV"
+          else
+            echo "python_version=3.11" >> "$GITHUB_ENV"
+          fi
+
+      - name: Download Default Dockerfiles
+        if: ${{ inputs.use_default_dockerfiles }}
+        run: |
+          # Download dockerfiles archive from workflow-calls repo
+          GITHUB_TOKEN=$TOKEN gh release download \
+            -R klever-labs/workflows \
+            -p 'dockerfiles.tar.gz' \
+            --clobber || true
+          
+          # Extract dockerfiles
+          if [ -f "dockerfiles.tar.gz" ]; then
+            tar -xzf dockerfiles.tar.gz
+            echo "✓ Extracted dockerfiles"
+            rm dockerfiles.tar.gz
+            
+            # Move files from dockerfiles/ to current directory
+            if [ -d "dockerfiles" ]; then
+              mv dockerfiles/* ./ 2>/dev/null || true
+              rmdir dockerfiles
+            fi
+          fi
+
+      - name: Download Config Files
+        if: ${{ inputs.download_configs }}
+        run: |
+          # Download configs archive from workflow-calls repo
+          GITHUB_TOKEN=$TOKEN gh release download \
+            -R klever-labs/workflows \
+            -p 'configs.tar.gz' \
+            --clobber || true
+          
+          # Extract configs
+          if [ -f "configs.tar.gz" ]; then
+            tar -xzf configs.tar.gz
+            echo "✓ Extracted configs"
+            rm configs.tar.gz
+          fi
+
+
+      - name: Cache Go Vendor
+        if: ${{ inputs.flavor == 'golang' && hashFiles('go.sum') != '' }}
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-vendor
+        with:
+          fail-on-cache-miss: true
+          path: vendor
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('./go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.cache-name }}-
+
+      - name: Cache Node.js dependencies
+        if: ${{ (inputs.flavor == 'javascript' || inputs.flavor == 'nodejs') && hashFiles('**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml') != '' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.yarn
+            ~/.pnpm-store
+            node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json', '**/yarn.lock', '**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Create .env File
+        if: ${{ inputs.flavor == 'javascript' || inputs.flavor == 'nodejs' }}
+        run: |
+          if [ -n "${{ secrets.build_secrets }}" ]; then
+            echo "${{ secrets.build_secrets }}" > .env
+          fi
+
+      # Google Cloud Registry Authentication
+      - name: Authenticate to Google Cloud
+        if: ${{ inputs.registry_name == 'gcr.io' }}
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.gcp_cloud_run_sa }}'
+
+      - name: Configure gcloud Docker
+        if: ${{ inputs.registry_name == 'gcr.io' }}
+        run: |
+          gcloud auth configure-docker
+
+      # GitHub Container Registry Authentication
+      - name: Login to GitHub Container Registry
+        if: ${{ inputs.registry_name == 'ghcr.io' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.git_pass }}
+
+      # Docker Hub or Custom Registry Authentication
+      - name: Login to Container Registry
+        if: ${{ inputs.registry_name != 'gcr.io' && inputs.registry_name != 'ghcr.io' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry_name }}
+          username: ${{ secrets.registry_user }}
+          password: ${{ secrets.registry_pass }}
+
+      - name: Execute pre-build
+        if: ${{ inputs.pre_build }}
+        run: |
+          if [ -f Makefile ] && grep -q "^pre-build:" Makefile; then
+            make pre-build
+          else
+            echo "Warning: pre-build requested but no Makefile target found"
+          fi
+
+      - name: Ensure GCR artifact repository exists
+        if: ${{ inputs.registry_name == 'gcr.io' }}
+        run: |
+          set +e
+          gcloud artifacts repositories describe gcr.io \
+            --project "${{ secrets.gcp_project_id }}" \
+            --location us
+          if [ $? -eq 1 ]; then
+            gcloud artifacts repositories create gcr.io \
+              --repository-format=docker \
+              --location=us \
+              --immutable-tags \
+              --async \
+              --disable-vulnerability-scanning \
+              --project "${{ secrets.gcp_project_id }}"
+          fi
+
+      - name: Prepare Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ inputs.registry_name == 'gcr.io' && format('{0}/{1}/{2}', inputs.registry_name, secrets.gcp_project_id, github.event.repository.name) || format('{0}/{1}', inputs.registry_name, github.event.repository.name) }}
+          tags: |
+            type=ref,event=branch,suffix=-latest
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=${{ github.sha }}
+            type=raw,value=${{ github.sha }}-${{ inputs.environment }}
+            ${{ inputs.additional_tags }}
+
+      - name: Determine Dockerfile path
+        id: dockerfile
+        run: |
+          if [ -n "${{ inputs.dockerfile_path }}" ]; then
+            dockerfile="${{ inputs.dockerfile_path }}"
+          else
+            dockerfile="Dockerfile.${{ inputs.flavor }}"
+          fi
+          echo "path=$dockerfile" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ steps.dockerfile.outputs.path }}
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: ${{ inputs.cache_from }}
+          cache-to: ${{ inputs.cache_to }}
+          build-args: |
+            BUILD_DIR=${{ inputs.build_dir }}
+            GO_VERSION=${{ env.go_version }}
+            NODE_VERSION=${{ env.node_version }}
+            PYTHON_VERSION=${{ env.python_version }}
+            GITHUB_SHA=${{ github.sha }}
+            GITHUB_REF=${{ github.ref }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            ${{ inputs.extra_build_args }}
+
+      - name: Generate build summary
+        run: |
+          {
+            echo "### Docker Build Summary"
+            echo ""
+            echo "**Image:** ${{ fromJSON(steps.meta.outputs.json).tags[0] }}"
+            echo "**Tags:** ${{ steps.meta.outputs.tags }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+    outputs:
+      image: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+      tags: ${{ steps.meta.outputs.tags }}

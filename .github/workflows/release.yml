@@ -1,0 +1,217 @@
+name: Create Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dockerfiles/**'
+      - 'configs/**'
+  workflow_dispatch:
+    inputs:
+      bump_level:
+        description: 'Version bump level'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  check-changes:
+    name: Check Changes
+    runs-on: ubuntu-latest
+    outputs:
+      dockerfiles_changed: ${{ steps.changes.outputs.dockerfiles }}
+      configs_changed: ${{ steps.changes.outputs.configs }}
+      should_release: ${{ steps.changes.outputs.dockerfiles == 'true' || steps.changes.outputs.configs == 'true' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            dockerfiles:
+              - 'dockerfiles/**'
+            configs:
+              - 'configs/**'
+
+  create-release:
+    name: Create Release
+    needs: check-changes
+    if: needs.check-changes.outputs.should_release == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if commit is already tagged
+        id: commit-tagged
+        run: |
+          if git describe --tags --exact-match HEAD 2>/dev/null; then
+            echo "tagged=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$(git describe --tags --exact-match HEAD)" >> "$GITHUB_OUTPUT"
+          else
+            echo "tagged=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get latest tag
+        id: get-latest-tag
+        if: steps.commit-tagged.outputs.tagged == 'false'
+        run: |
+          # Get the latest semver tag
+          latest_tag=$(git tag -l 'v*' | sort -V | tail -n1)
+          if [ -z "$latest_tag" ]; then
+            echo "tag=v0.0.0" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine version bump
+        id: determine-bump
+        if: steps.commit-tagged.outputs.tagged == 'false'
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "level=${{ github.event.inputs.bump_level }}" >> "$GITHUB_OUTPUT"
+          else
+            # Auto-detect bump level based on commit messages
+            commit_messages=$(git log --format=%s ${{ steps.get-latest-tag.outputs.tag }}..HEAD 2>/dev/null || git log --format=%s)
+            
+            if echo "$commit_messages" | grep -qE '^(feat|feature)(\(.+\))?!:'; then
+              echo "level=major" >> "$GITHUB_OUTPUT"
+            elif echo "$commit_messages" | grep -qE '^(feat|feature)(\(.+\))?:'; then
+              echo "level=minor" >> "$GITHUB_OUTPUT"
+            else
+              echo "level=patch" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Bump version
+        id: bump-version
+        if: steps.commit-tagged.outputs.tagged == 'false'
+        run: |
+          current_version="${{ steps.get-latest-tag.outputs.tag }}"
+          bump_level="${{ steps.determine-bump.outputs.level }}"
+          
+          # Remove 'v' prefix if present
+          version="${current_version#v}"
+          
+          # Split version into components
+          IFS='.' read -r major minor patch <<< "$version"
+          
+          # Bump the appropriate component
+          case "$bump_level" in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+          esac
+          
+          new_version="v${major}.${minor}.${patch}"
+          echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release assets
+        if: steps.commit-tagged.outputs.tagged == 'false'
+        run: |
+          # Create release archives
+          ./scripts/prepare-release.sh
+
+      - name: Generate release notes
+        id: release-notes
+        if: steps.commit-tagged.outputs.tagged == 'false'
+        run: |
+          version="${{ steps.bump-version.outputs.new_version }}"
+          prev_tag="${{ steps.get-latest-tag.outputs.tag }}"
+          
+          {
+            echo "# Release $version"
+            echo ""
+            
+            # Add change summary
+            if [ "${{ needs.check-changes.outputs.dockerfiles_changed }}" == "true" ]; then
+              echo "## 📦 Dockerfile Updates"
+              echo ""
+              git diff --name-only "$prev_tag"..HEAD -- dockerfiles/ | while read -r file; do
+                echo "- Updated: $file"
+              done
+              echo ""
+            fi
+            
+            if [ "${{ needs.check-changes.outputs.configs_changed }}" == "true" ]; then
+              echo "## ⚙️ Configuration Updates"
+              echo ""
+              git diff --name-only "$prev_tag"..HEAD -- configs/ | while read -r file; do
+                echo "- Updated: $file"
+              done
+              echo ""
+            fi
+            
+            # Add commit history
+            echo "## 📝 Commits"
+            echo ""
+            git log --format="- %s (%an)" "$prev_tag"..HEAD
+            echo ""
+            
+            echo "## 📥 Assets"
+            echo ""
+            echo "- **dockerfiles.tar.gz**: Contains all Dockerfiles for different build flavors"
+            echo "- **configs.tar.gz**: Contains configuration files (nginx.conf, etc.)"
+            echo ""
+            echo "## 🚀 Usage"
+            echo ""
+            echo "These assets are automatically downloaded by the \`docker-build.yml\` workflow when:"
+            echo "- \`use_default_dockerfiles: true\` (downloads dockerfiles.tar.gz)"
+            echo "- \`download_configs: true\` (downloads configs.tar.gz)"
+          } > release-notes.md
+          
+          # Output for GitHub Actions
+          {
+            echo "body<<EOF"
+            cat release-notes.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        if: steps.commit-tagged.outputs.tagged == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.bump-version.outputs.new_version }}" -m "Release ${{ steps.bump-version.outputs.new_version }}"
+          git push origin "${{ steps.bump-version.outputs.new_version }}"
+
+      - name: Create GitHub release
+        if: steps.commit-tagged.outputs.tagged == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump-version.outputs.new_version }}
+          name: ${{ steps.bump-version.outputs.new_version }}
+          body: ${{ steps.release-notes.outputs.body }}
+          files: |
+            dockerfiles.tar.gz
+            configs.tar.gz
+          draft: false
+          prerelease: false
+
+      - name: Skip release
+        if: steps.commit-tagged.outputs.tagged == 'true'
+        run: |
+          echo "Commit is already tagged with ${{ steps.commit-tagged.outputs.tag }}, skipping release creation."
