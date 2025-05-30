@@ -5,6 +5,7 @@ This document describes the automated release process for the workflows reposito
 ## Overview
 
 The repository uses an automated release workflow that triggers when changes are made to:
+
 - `dockerfiles/` directory
 - `configs/` directory
 
@@ -12,11 +13,14 @@ The repository uses an automated release workflow that triggers when changes are
 
 ### Trigger Conditions
 
-1. **Push to main branch** with changes in:
-   - Any file under `dockerfiles/`
-   - Any file under `configs/`
+1. **After CI workflow completes successfully** on main branch:
+   - Automatically triggered when CI passes
+   - Checks if `dockerfiles/` or `configs/` were changed in the commit
+   - Only creates release if relevant directories were modified
 
 2. **Manual trigger** via GitHub Actions UI (workflow_dispatch)
+   - Does not wait for CI (assumes you've verified quality)
+   - Always creates a release regardless of what changed
 
 ### Version Bumping
 
@@ -64,28 +68,41 @@ Release notes are automatically generated and include:
    - Tags the commit (e.g., v1.2.0)
    - Creates GitHub release with assets
 
+## CI Protection
+
+The release workflow includes protection to ensure code quality:
+
+- **Automatic releases** are triggered by `workflow_run` event after CI completes
+- Only proceeds if CI concluded with 'success'
+- **Manual releases** (workflow_dispatch) bypass CI for emergency releases
+- Clean implementation using native GitHub Actions features
+
 ## Preventing Duplicate Releases
 
 The workflow checks if the current commit is already tagged:
+
 - If tagged: Skip release creation
 - If not tagged: Proceed with release
 
 ## Best Practices
 
 1. **Use conventional commits** for clear version bumping:
-   ```
+
+   ```text
    feat: add new Dockerfile for Ruby
    fix: correct nginx cache headers
    feat!: change default Node.js version to 20
    ```
 
 2. **Test changes locally** before pushing:
+
    ```bash
    ./scripts/prepare-release.sh
    # Verify the archives contain expected files
    ```
 
 3. **Review generated releases** to ensure:
+
    - Correct version bump
    - All expected files are included
    - Release notes are accurate

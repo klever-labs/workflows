@@ -25,7 +25,7 @@ fi
 
 echo ""
 echo "Release archives ready:"
-ls -lh *.tar.gz 2>/dev/null || echo "No archives created"
+ls -lh ./*.tar.gz 2>/dev/null || echo "No archives created"
 
 echo ""
 echo "Example release command:"

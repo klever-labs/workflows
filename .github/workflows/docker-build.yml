@@ -155,13 +155,13 @@ jobs:
             -R klever-labs/workflows \
             -p 'dockerfiles.tar.gz' \
             --clobber || true
-          
+
           # Extract dockerfiles
           if [ -f "dockerfiles.tar.gz" ]; then
             tar -xzf dockerfiles.tar.gz
             echo "✓ Extracted dockerfiles"
             rm dockerfiles.tar.gz
-            
+
             # Move files from dockerfiles/ to current directory
             if [ -d "dockerfiles" ]; then
               mv dockerfiles/* ./ 2>/dev/null || true
@@ -177,14 +177,13 @@ jobs:
             -R klever-labs/workflows \
             -p 'configs.tar.gz' \
             --clobber || true
-          
+
           # Extract configs
           if [ -f "configs.tar.gz" ]; then
             tar -xzf configs.tar.gz
             echo "✓ Extracted configs"
             rm configs.tar.gz
           fi
-
 
       - name: Cache Go Vendor
         if: ${{ inputs.flavor == 'golang' && hashFiles('go.sum') != '' }}

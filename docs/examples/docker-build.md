@@ -1,6 +1,7 @@
 # Docker Build Workflow Examples
 
-This document provides examples of using the `docker-build.yml` reusable workflow for building and pushing Docker images to various container registries.
+This document provides examples of using the `docker-build.yml` reusable workflow for building and
+pushing Docker images to various container registries.
 
 ## Table of Contents
 

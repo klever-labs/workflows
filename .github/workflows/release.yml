@@ -1,11 +1,11 @@
 name: Create Release
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
     branches: [main]
-    paths:
-      - 'dockerfiles/**'
-      - 'configs/**'
   workflow_dispatch:
     inputs:
       bump_level:
@@ -25,6 +25,8 @@ jobs:
   check-changes:
     name: Check Changes
     runs-on: ubuntu-latest
+    # Only run if CI passed or this is a manual trigger
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     outputs:
       dockerfiles_changed: ${{ steps.changes.outputs.dockerfiles }}
       configs_changed: ${{ steps.changes.outputs.configs }}
@@ -35,15 +37,52 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check for changes
-        id: changes
+      - name: Display trigger information
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "🚀 Manual release triggered"
+            echo "Version bump: ${{ github.event.inputs.bump_level }}"
+          else
+            echo "🤖 Automatic release triggered by CI completion"
+            echo "CI workflow: ${{ github.event.workflow_run.name }}"
+            echo "CI status: ${{ github.event.workflow_run.conclusion }}"
+            echo "Commit: ${{ github.event.workflow_run.head_sha }}"
+          fi
+
+      - name: Check for changes (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        id: changes-manual
+        run: |
+          # For manual trigger, assume we want to release
+          echo "dockerfiles=true" >> "$GITHUB_OUTPUT"
+          echo "configs=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check for changes (workflow_run)
+        if: github.event_name == 'workflow_run'
+        id: changes-auto
         uses: dorny/paths-filter@v3
         with:
+          # For workflow_run, we need to specify the base and ref explicitly
+          base: ${{ github.event.workflow_run.head_sha }}^
+          ref: ${{ github.event.workflow_run.head_sha }}
+          # This tells the action to fetch the history
+          token: ${{ github.token }}
           filters: |
             dockerfiles:
               - 'dockerfiles/**'
             configs:
               - 'configs/**'
+
+      - name: Combine change results
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "dockerfiles=${{ steps.changes-manual.outputs.dockerfiles }}" >> "$GITHUB_OUTPUT"
+            echo "configs=${{ steps.changes-manual.outputs.configs }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "dockerfiles=${{ steps.changes-auto.outputs.dockerfiles }}" >> "$GITHUB_OUTPUT"
+            echo "configs=${{ steps.changes-auto.outputs.configs }}" >> "$GITHUB_OUTPUT"
+          fi
 
   create-release:
     name: Create Release
@@ -87,7 +126,7 @@ jobs:
           else
             # Auto-detect bump level based on commit messages
             commit_messages=$(git log --format=%s ${{ steps.get-latest-tag.outputs.tag }}..HEAD 2>/dev/null || git log --format=%s)
-            
+
             if echo "$commit_messages" | grep -qE '^(feat|feature)(\(.+\))?!:'; then
               echo "level=major" >> "$GITHUB_OUTPUT"
             elif echo "$commit_messages" | grep -qE '^(feat|feature)(\(.+\))?:'; then
@@ -103,13 +142,13 @@ jobs:
         run: |
           current_version="${{ steps.get-latest-tag.outputs.tag }}"
           bump_level="${{ steps.determine-bump.outputs.level }}"
-          
+
           # Remove 'v' prefix if present
           version="${current_version#v}"
-          
+
           # Split version into components
           IFS='.' read -r major minor patch <<< "$version"
-          
+
           # Bump the appropriate component
           case "$bump_level" in
             major)
@@ -125,7 +164,7 @@ jobs:
               patch=$((patch + 1))
               ;;
           esac
-          
+
           new_version="v${major}.${minor}.${patch}"
           echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
 
@@ -141,11 +180,11 @@ jobs:
         run: |
           version="${{ steps.bump-version.outputs.new_version }}"
           prev_tag="${{ steps.get-latest-tag.outputs.tag }}"
-          
+
           {
             echo "# Release $version"
             echo ""
-            
+
             # Add change summary
             if [ "${{ needs.check-changes.outputs.dockerfiles_changed }}" == "true" ]; then
               echo "## 📦 Dockerfile Updates"
@@ -155,7 +194,7 @@ jobs:
               done
               echo ""
             fi
-            
+
             if [ "${{ needs.check-changes.outputs.configs_changed }}" == "true" ]; then
               echo "## ⚙️ Configuration Updates"
               echo ""
@@ -164,13 +203,13 @@ jobs:
               done
               echo ""
             fi
-            
+
             # Add commit history
             echo "## 📝 Commits"
             echo ""
             git log --format="- %s (%an)" "$prev_tag"..HEAD
             echo ""
-            
+
             echo "## 📥 Assets"
             echo ""
             echo "- **dockerfiles.tar.gz**: Contains all Dockerfiles for different build flavors"
@@ -182,7 +221,7 @@ jobs:
             echo "- \`use_default_dockerfiles: true\` (downloads dockerfiles.tar.gz)"
             echo "- \`download_configs: true\` (downloads configs.tar.gz)"
           } > release-notes.md
-          
+
           # Output for GitHub Actions
           {
             echo "body<<EOF"

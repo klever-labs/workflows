@@ -4,7 +4,8 @@ This document explains how to include configuration files (like nginx.conf) in y
 
 ## Overview
 
-The docker-build workflow now supports downloading and using configuration files and Dockerfiles from the workflow-calls repository as tar.gz archives. This is particularly useful for:
+The docker-build workflow now supports downloading and using configuration files and Dockerfiles from the
+ workflow-calls repository as tar.gz archives. This is particularly useful for:
 
 - nginx.conf files for JavaScript/frontend applications
 - Environment-specific configuration files
@@ -13,7 +14,7 @@ The docker-build workflow now supports downloading and using configuration files
 
 ## Directory Structure
 
-```
+```text
 workflows/
 ├── dockerfiles/         # Dockerfiles for different flavors
 │   ├── Dockerfile.golang
@@ -75,11 +76,13 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 1. **nginx.conf** is included in the workflows repository
 2. **Dockerfile.javascript** expects the nginx.conf file:
+
    ```dockerfile
    FROM nginx:alpine-slim
    COPY nginx.conf /etc/nginx/conf.d/default.conf
    COPY --from=builder /app/dist /usr/share/nginx/html
    ```
+
 3. The workflow automatically downloads the config file during build
 
 ## Customizing Config Download
@@ -116,6 +119,7 @@ This will create a `configs.tar.gz` file that should be included in the release 
 ## Supported File Types
 
 Currently, the workflow downloads files matching these patterns:
+
 - `*.conf` - Configuration files
 - `configs.tar.gz` - Archived configs directory
 
