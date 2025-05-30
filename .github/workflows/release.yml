@@ -60,18 +60,40 @@ jobs:
       - name: Check for changes (workflow_run)
         if: github.event_name == 'workflow_run'
         id: changes-auto
-        uses: dorny/paths-filter@v3
-        with:
-          # For workflow_run, we need to specify the base and ref explicitly
-          base: ${{ github.event.workflow_run.head_sha }}^
-          ref: ${{ github.event.workflow_run.head_sha }}
-          # This tells the action to fetch the history
-          token: ${{ github.token }}
-          filters: |
-            dockerfiles:
-              - 'dockerfiles/**'
-            configs:
-              - 'configs/**'
+        run: |
+          # Get the commit SHA from the workflow run
+          commit_sha="${{ github.event.workflow_run.head_sha }}"
+          echo "Checking changes in commit: $commit_sha"
+
+          # Get changed files in the commit
+          changed_files=$(git diff-tree --no-commit-id --name-only -r "$commit_sha" 2>/dev/null || echo "")
+
+          if [ -z "$changed_files" ]; then
+            echo "No files changed or unable to get diff"
+            echo "dockerfiles=false" >> "$GITHUB_OUTPUT"
+            echo "configs=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changed files:"
+            echo "$changed_files"
+
+            # Check for dockerfiles changes
+            if echo "$changed_files" | grep -q "^dockerfiles/"; then
+              echo "dockerfiles=true" >> "$GITHUB_OUTPUT"
+              echo "✓ Found changes in dockerfiles/"
+            else
+              echo "dockerfiles=false" >> "$GITHUB_OUTPUT"
+              echo "✗ No changes in dockerfiles/"
+            fi
+
+            # Check for configs changes
+            if echo "$changed_files" | grep -q "^configs/"; then
+              echo "configs=true" >> "$GITHUB_OUTPUT"
+              echo "✓ Found changes in configs/"
+            else
+              echo "configs=false" >> "$GITHUB_OUTPUT"
+              echo "✗ No changes in configs/"
+            fi
+          fi
 
       - name: Combine change results
         id: changes
