@@ -165,7 +165,6 @@ jobs:
             # Move files from dockerfiles/ to current directory
             if [ -d "dockerfiles" ]; then
               mv dockerfiles/* ./ 2>/dev/null || true
-              rmdir dockerfiles
             fi
           fi
 
