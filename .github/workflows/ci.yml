@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-workflows:
+    name: Validate Workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download actionlint
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -L https://github.com/rhysd/actionlint/releases/download/v1.7.4/actionlint_1.7.4_linux_amd64.tar.gz | \
+            tar xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Validate workflow files
+        run: |
+          # Validate all workflow files
+          find .github/workflows -name '*.yml' -o -name '*.yaml' | \
+            xargs -I {} actionlint {} || exit 1
+          
+          # Validate action.yml files
+          find actions -name 'action.yml' -o -name 'action.yaml' | \
+            xargs -I {} actionlint {} || exit 1
+
+  yaml-lint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run yamllint
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          config_file: .yamllint.yml
+          strict: true
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: './scripts'
+          ignore_paths: '.git'
+
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run markdownlint
+        uses: DavidAnson/markdownlint-cli2-action@v16
+        with:
+          globs: |
+            **/*.md
+            !node_modules
+
+  test-workflows:
+    name: Test Workflow Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Validate workflow syntax
+        run: |
+          # Validate workflow files
+          for file in .github/workflows/*.yml; do
+            if [ -f "$file" ]; then
+              echo "Validating $file"
+              python -c "import yaml; yaml.safe_load(open('$file'))" || exit 1
+            fi
+          done
+          
+          # Validate action.yml files
+          for file in actions/*/action.yml; do
+            if [ -f "$file" ]; then
+              echo "Validating $file"
+              python -c "import yaml; yaml.safe_load(open('$file'))" || exit 1
+            fi
+          done
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy security scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  all-checks:
+    name: All Checks Pass
+    runs-on: ubuntu-latest
+    needs:
+      - validate-workflows
+      - yaml-lint
+      - shellcheck
+      - markdown-lint
+      - test-workflows
+      - security-scan
+    steps:
+      - name: All checks passed
+        run: echo "All CI checks passed successfully!"

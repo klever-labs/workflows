@@ -1,0 +1,148 @@
+name: Node.js CI
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: 'Node.js version to use'
+        type: string
+        required: false
+        default: '20.x'
+      pnpm-version:
+        description: 'pnpm version to use'
+        type: string
+        required: false
+        default: '8'
+      working-directory:
+        description: 'Working directory for the project'
+        type: string
+        required: false
+        default: '.'
+      run-build:
+        description: 'Whether to run the build step'
+        type: boolean
+        required: false
+        default: true
+      run-tests:
+        description: 'Whether to run tests'
+        type: boolean
+        required: false
+        default: true
+      test-command:
+        description: 'Custom test command (default: pnpm test)'
+        type: string
+        required: false
+        default: 'pnpm test --if-present'
+      lint-command:
+        description: 'Custom lint command (default: pnpm lint)'
+        type: string
+        required: false
+        default: 'pnpm lint'
+      typecheck-command:
+        description: 'Custom typecheck command (default: pnpm typecheck)'
+        type: string
+        required: false
+        default: 'pnpm typecheck'
+      format-check-command:
+        description: 'Custom format check command (default: pnpm format:check)'
+        type: string
+        required: false
+        default: 'pnpm format:check'
+      build-command:
+        description: 'Custom build command (default: pnpm build)'
+        type: string
+        required: false
+        default: 'pnpm build'
+
+jobs:
+  lint-and-typecheck:
+    name: Lint and Type Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        
+    - name: Install pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: ${{ inputs.pnpm-version }}
+        
+    - name: Get pnpm store directory
+      shell: bash
+      run: |
+        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+        
+    - name: Setup pnpm cache
+      uses: actions/cache@v3
+      with:
+        path: ${{ env.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-store-
+          
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+      
+    - name: Run ESLint
+      run: ${{ inputs.lint-command }}
+      
+    - name: Run TypeScript type check
+      run: ${{ inputs.typecheck-command }}
+      
+    - name: Build project
+      if: inputs.run-build
+      run: ${{ inputs.build-command }}
+      
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        
+    - name: Install pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: ${{ inputs.pnpm-version }}
+        
+    - name: Get pnpm store directory
+      shell: bash
+      run: |
+        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+        
+    - name: Setup pnpm cache
+      uses: actions/cache@v3
+      with:
+        path: ${{ env.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-store-
+          
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+      
+    - name: Check formatting
+      run: ${{ inputs.format-check-command }}
+      
+    - name: Run tests
+      if: inputs.run-tests
+      run: ${{ inputs.test-command }}
+      continue-on-error: true

@@ -1,0 +1,59 @@
+name: 'Setup Node.js'
+description: 'Setup Node.js with caching for npm, yarn, or pnpm'
+author: 'Klever Labs'
+
+inputs:
+  node-version:
+    description: 'Version of Node.js to use'
+    required: false
+    default: '18'
+  cache:
+    description: 'Package manager to cache dependencies for (npm, yarn, pnpm, or false)'
+    required: false
+    default: 'npm'
+  registry-url:
+    description: 'Optional NPM registry URL'
+    required: false
+  working-directory:
+    description: 'Working directory for cache detection'
+    required: false
+    default: '.'
+
+outputs:
+  cache-hit:
+    description: 'Whether the cache was hit'
+    value: ${{ steps.setup-node.outputs.cache-hit }}
+  node-version:
+    description: 'The installed Node.js version'
+    value: ${{ steps.setup-node.outputs.node-version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      id: setup-node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: ${{ inputs.cache != 'false' && inputs.cache || '' }}
+        registry-url: ${{ inputs.registry-url }}
+        cache-dependency-path: |
+          ${{ inputs.working-directory }}/package-lock.json
+          ${{ inputs.working-directory }}/yarn.lock
+          ${{ inputs.working-directory }}/pnpm-lock.yaml
+    
+    - name: Display Node.js version
+      shell: bash
+      run: |
+        echo "Node.js version: $(node --version)"
+        echo "NPM version: $(npm --version)"
+        if command -v yarn &> /dev/null; then
+          echo "Yarn version: $(yarn --version)"
+        fi
+        if command -v pnpm &> /dev/null; then
+          echo "PNPM version: $(pnpm --version)"
+        fi
+
+branding:
+  icon: 'package'
+  color: 'green'

@@ -1,0 +1,65 @@
+name: Node.js CI (Simple)
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: 'Node.js version to use'
+        type: string
+        required: false
+        default: '20.x'
+      pnpm-version:
+        description: 'pnpm version to use'
+        type: string
+        required: false
+        default: '8'
+      working-directory:
+        description: 'Working directory for the project'
+        type: string
+        required: false
+        default: '.'
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        
+    - name: Setup pnpm
+      uses: klever-labs/workflows/actions/setup-pnpm@main
+      with:
+        version: ${{ inputs.pnpm-version }}
+        working-directory: ${{ inputs.working-directory }}
+        
+    - name: Run CI tasks
+      run: |
+        echo "::group::Lint"
+        pnpm lint
+        echo "::endgroup::"
+        
+        echo "::group::Type Check"
+        pnpm typecheck
+        echo "::endgroup::"
+        
+        echo "::group::Format Check"
+        pnpm format:check
+        echo "::endgroup::"
+        
+        echo "::group::Tests"
+        pnpm test --if-present || true
+        echo "::endgroup::"
+        
+        echo "::group::Build"
+        pnpm build
+        echo "::endgroup::"

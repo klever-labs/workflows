@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+dist/
+build/
+out/
+*.log
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+.coverage
+*.lcov
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+tmp/
+temp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Ruby
+*.gem
+.bundle/
+Gemfile.lock
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Secrets (just in case)
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/
