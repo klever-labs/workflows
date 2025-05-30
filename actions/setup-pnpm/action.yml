@@ -35,24 +35,23 @@ runs:
       uses: pnpm/action-setup@v2
       with:
         version: ${{ inputs.version }}
-        
+
     - name: Get pnpm store directory
       id: pnpm-store
       shell: bash
       run: |
         STORE_PATH=$(pnpm store path --silent)
         echo "path=$STORE_PATH" >> $GITHUB_OUTPUT
-        echo "STORE_PATH=$STORE_PATH" >> $GITHUB_ENV
-        
+
     - name: Setup pnpm cache
       id: cache-pnpm
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ${{ steps.pnpm-store.outputs.path }}
         key: ${{ runner.os }}-pnpm-store-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}
         restore-keys: |
           ${{ runner.os }}-pnpm-store-
-          
+
     - name: Install dependencies
       if: inputs.run-install == 'true'
       shell: bash

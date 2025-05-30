@@ -177,6 +177,7 @@ runs:
 ### README for Complex Workflows
 
 For complex workflows, create a README in the same directory:
+
 - `workflows/deploy-ecs.yml`
 - `workflows/deploy-ecs.md`
 
@@ -200,6 +201,7 @@ act -s MY_SECRET=value
 ### Validation
 
 Before committing:
+
 1. Run `actionlint` for syntax validation
 2. Run `yamllint` for YAML formatting
 3. Test in a feature branch first
@@ -209,6 +211,7 @@ Before committing:
 ### Semantic Versioning
 
 Tag stable versions of workflows:
+
 - `v1.0.0` - Major version (breaking changes)
 - `v1.1.0` - Minor version (new features)
 - `v1.1.1` - Patch version (bug fixes)

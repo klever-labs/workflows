@@ -4,12 +4,25 @@ This guide provides detailed instructions on how to use the workflows in this re
 
 ## Table of Contents
 
-- [Getting Started](#getting-started)
-- [Using Reusable Workflows](#using-reusable-workflows)
-- [Using Technology-Specific Workflows](#using-technology-specific-workflows)
-- [Using Composite Actions](#using-composite-actions)
-- [Common Patterns](#common-patterns)
-- [Troubleshooting](#troubleshooting)
+- [Usage Guide](#usage-guide)
+  - [Table of Contents](#table-of-contents)
+  - [Getting Started](#getting-started)
+    - [Basic Example](#basic-example)
+  - [Using Reusable Workflows](#using-reusable-workflows)
+    - [Workflow Inputs](#workflow-inputs)
+    - [Passing Secrets](#passing-secrets)
+  - [Using Technology-Specific Workflows](#using-technology-specific-workflows)
+    - [Technology-Specific Example](#technology-specific-example)
+  - [Using Composite Actions](#using-composite-actions)
+    - [Basic Usage](#basic-usage)
+    - [Using Official Actions](#using-official-actions)
+  - [Common Patterns](#common-patterns)
+    - [Multi-Environment Deployment](#multi-environment-deployment)
+    - [Matrix Builds](#matrix-builds)
+  - [Troubleshooting](#troubleshooting)
+    - [Common Issues](#common-issues)
+    - [Debug Mode](#debug-mode)
+    - [Support](#support)
 
 ## Getting Started
 
@@ -104,7 +117,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Setup Node.js environment
-        uses: klever-labs/workflows/actions/setup-node@main
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
@@ -113,19 +126,24 @@ jobs:
         run: npm ci
 ```
 
-### Available Actions
+### Using Official Actions
 
-#### setup-node
-
-Configures Node.js with intelligent caching:
+For Node.js setup, use the official GitHub action:
 
 ```yaml
-- uses: klever-labs/workflows/actions/setup-node@main
+- uses: actions/setup-node@v4
   with:
-    node-version: '18'        # Node.js version (default: '18')
-    cache: 'npm'              # Package manager: npm, yarn, pnpm, or false
+    node-version: '18'        # Node.js version
+    cache: 'npm'              # Package manager: npm, yarn, pnpm
     registry-url: 'https://npm.pkg.github.com'  # Optional registry
-    working-directory: '.'    # Where to look for lock files
+```
+
+For pnpm setup, combine with pnpm's official action:
+
+```yaml
+- uses: pnpm/action-setup@v2
+  with:
+    version: '8'              # pnpm version
 ```
 
 ## Common Patterns
@@ -165,6 +183,7 @@ jobs:
 ### Common Issues
 
 1. **Permission Errors**: Ensure your workflow has the necessary permissions:
+
    ```yaml
    permissions:
      contents: read
@@ -178,11 +197,13 @@ jobs:
 ### Debug Mode
 
 Enable debug logging by setting these secrets in your repository:
+
 - `ACTIONS_STEP_DEBUG: true`
 - `ACTIONS_RUNNER_DEBUG: true`
 
 ### Support
 
 For issues or questions:
+
 - Create an issue in this repository
-- Contact the DevOps team at devops@klever-labs.com
+- Contact the DevOps team at <devops@klever-labs.com>

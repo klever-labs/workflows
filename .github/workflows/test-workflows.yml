@@ -1,0 +1,94 @@
+name: Test Workflows
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/*.yml'
+      - 'actions/*/action.yml'
+  workflow_dispatch:
+
+jobs:
+  # Test that workflows have valid syntax
+  validate-syntax:
+    name: Validate Workflow Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate workflows with actionlint
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -L https://github.com/rhysd/actionlint/releases/download/v1.7.4/actionlint_1.7.4_linux_amd64.tar.gz | \
+            tar xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+          # Check all workflows
+          actionlint .github/workflows/*.yml
+
+          # Check all actions
+          find actions -name 'action.yml' -exec actionlint {} \;
+
+  # Test the Node.js CI workflow with a minimal setup
+  test-node-ci:
+    name: Test Node.js CI Workflow
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test Node.js project
+        run: |
+          mkdir test-project
+          cd test-project
+
+          # Create package.json
+          cat > package.json << 'EOF'
+          {
+            "name": "test-project",
+            "version": "1.0.0",
+            "scripts": {
+              "lint": "echo 'Running lint...'",
+              "typecheck": "echo 'Running typecheck...'",
+              "format:check": "echo 'Checking format...'",
+              "test": "echo 'Running tests...'",
+              "build": "echo 'Building project...'"
+            }
+          }
+          EOF
+
+          # Create pnpm-lock.yaml (minimal valid file)
+          cat > pnpm-lock.yaml << 'EOF'
+          lockfileVersion: '6.0'
+          settings:
+            autoInstallPeers: true
+            excludeLinksFromLockfile: false
+          EOF
+
+      - name: Test setup-pnpm action
+        uses: ./actions/setup-pnpm
+        with:
+          version: '8'
+          working-directory: './test-project'
+          run-install: 'false'
+
+      - name: Verify pnpm installation
+        run: |
+          pnpm --version
+          # Check if action exists
+          test -f ./actions/setup-pnpm/action.yml && echo "setup-pnpm action exists"
+
+  # Test composite actions
+  test-actions:
+    name: Test Composite Actions
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        action:
+          - setup-pnpm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test action
+        run: |
+          echo "Testing ${{ matrix.action }} action"
+          # Just validate the action.yml file exists
+          test -f ./actions/${{ matrix.action }}/action.yml && echo "Action file exists"

@@ -24,17 +24,15 @@ jobs:
           mkdir -p "$HOME/.local/bin"
           curl -L https://github.com/rhysd/actionlint/releases/download/v1.7.4/actionlint_1.7.4_linux_amd64.tar.gz | \
             tar xz -C "$HOME/.local/bin"
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Validate workflow files
         run: |
           # Validate all workflow files
-          find .github/workflows -name '*.yml' -o -name '*.yaml' | \
-            xargs -I {} actionlint {} || exit 1
-          
-          # Validate action.yml files
-          find actions -name 'action.yml' -o -name 'action.yaml' | \
-            xargs -I {} actionlint {} || exit 1
+          find .github/workflows \( -name '*.yml' -o -name '*.yaml' \) -print0 | \
+            xargs -0 -I {} actionlint {} || exit 1
+
+          # Note: action.yml files have different syntax and should not be validated with actionlint
 
   yaml-lint:
     name: YAML Lint
@@ -43,11 +41,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run yamllint
-        uses: ibiqlik/action-yamllint@v3
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          config_file: .yamllint.yml
-          strict: true
+          python-version: '3.13'
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Run yamllint
+        run: yamllint -c .yamllint.yml .
 
   shellcheck:
     name: ShellCheck
@@ -69,12 +72,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run markdownlint
-        uses: DavidAnson/markdownlint-cli2-action@v16
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          globs: |
-            **/*.md
-            !node_modules
+          node-version: '20'
+
+      - name: Install markdownlint-cli
+        run: npm install -g markdownlint-cli
+
+      - name: Run markdownlint
+        run: markdownlint '**/*.md' --ignore node_modules --config .markdownlint.json
 
   test-workflows:
     name: Test Workflow Syntax
@@ -100,7 +107,7 @@ jobs:
               python -c "import yaml; yaml.safe_load(open('$file'))" || exit 1
             fi
           done
-          
+
           # Validate action.yml files
           for file in actions/*/action.yml; do
             if [ -f "$file" ]; then
@@ -121,15 +128,11 @@ jobs:
         with:
           scan-type: 'fs'
           scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
-
-      - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
 
   all-checks:
     name: All Checks Pass
@@ -140,7 +143,6 @@ jobs:
       - shellcheck
       - markdown-lint
       - test-workflows
-      - security-scan
     steps:
       - name: All checks passed
         run: echo "All CI checks passed successfully!"

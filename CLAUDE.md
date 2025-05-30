@@ -4,14 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Purpose
 
-This repository contains reusable, version-controlled GitHub Actions workflows and automation templates used across the organization. It serves as a central location for managing CI/CD pipelines, deployment processes, linting, testing, and other DevOps tasks consistently across all applications and services.
+This repository contains reusable, version-controlled GitHub Actions workflows and automation templates used across
+the organization. It serves as a central location for managing CI/CD pipelines, deployment processes, linting,
+testing, and other DevOps tasks consistently across all applications and services.
 
-By centralizing workflows, we reduce duplication, enforce best practices, and streamline development and deployment processes across projects.
+By centralizing workflows, we reduce duplication, enforce best practices, and streamline development and deployment
+processes across projects.
 
 ## Architecture Overview
 
 ### Directory Structure
-```
+
+```text
 workflows/
 │
 ├── README.md                # Overview, usage instructions, and contributing guidelines
@@ -28,14 +32,6 @@ workflows/
 │       ├── docker-deploy.yml # Reusable: Docker-based deployment
 │       └── notify-slack.yml # Reusable: Slack notifications
 │
-├── actions/                 # Composite actions for reusable steps
-│   ├── setup-node/          # Example: Node.js setup action
-│   │   └── action.yml
-│   ├── cache-dependencies/  # Example: Dependency caching action
-│   │   └── action.yml
-│   └── notify-slack/        # Example: Slack notification action
-│       └── action.yml
-│
 ├── scripts/                 # Utility scripts used in workflows (bash, Python, etc.)
 │   └── cleanup-temp.sh
 │
@@ -45,14 +41,15 @@ workflows/
 ```
 
 ### Workflow Organization
+
 - **Internal workflows**: Prefixed with repo management tasks (e.g., `ci.yml`)
 - **Reusable workflows**: Clear, descriptive names for external use
 - **Technology-specific**: Include technology in name (e.g., `node-build.yml`, `python-test.yml`)
-- **Composite actions** (`actions/`): Reusable step-level components in subdirectories
 - **Scripts** (`scripts/`): Supporting scripts that workflows depend on
 - **Documentation** (`docs/`): Detailed usage guides and conventions
 
 ### Naming Conventions
+
 - Use kebab-case for workflow files: `build-and-test.yml`
 - Technology-specific workflows: `<tech>-<action>.yml` (e.g., `node-build.yml`, `python-test.yml`)
 - Environment-specific workflows: `deploy-<env>.yml` (e.g., `deploy-staging.yml`)
@@ -61,6 +58,7 @@ workflows/
 ## Common Commands
 
 ### Validating Workflows
+
 ```bash
 # Validate workflow syntax locally (requires act or actionlint)
 actionlint .github/workflows/*.yml
@@ -71,6 +69,7 @@ act push  # Run push event workflows
 ```
 
 ### Working with GitHub CLI
+
 ```bash
 # List workflows in a repository
 gh workflow list
@@ -82,24 +81,10 @@ gh run list
 gh run download <run-id>
 ```
 
-### Using Composite Actions
-```yaml
-# In your workflow file
-steps:
-  - name: Setup Node.js
-    uses: klever-labs/workflows/actions/setup-node@main
-    with:
-      node-version: '18'
-      
-  - name: Cache Dependencies
-    uses: klever-labs/workflows/actions/cache-dependencies@main
-    with:
-      package-manager: npm
-```
-
 ## Development Guidelines
 
 ### When Creating Workflows
+
 1. Always use the latest stable action versions unless specific version is required
 2. Pin third-party actions to full commit SHA for security
 3. Use workflow inputs for configuration flexibility
@@ -107,6 +92,7 @@ steps:
 5. Test workflows in a feature branch before merging
 
 ### Reusable Workflow Pattern
+
 ```yaml
 on:
   workflow_call:
@@ -117,6 +103,7 @@ on:
 ```
 
 ### Security Considerations
+
 - Never hardcode secrets - use GitHub Secrets
 - Limit permissions using `permissions:` key
 - Review third-party actions before use
@@ -131,7 +118,8 @@ Claude is used as a collaborative agent to:
 - Suggest improvements in structure, naming, and automation logic
 - Accelerate the creation of consistent, maintainable DevOps tooling
 
-Claude is treated as an extension of our engineering process — focused on efficiency and consistency, not as a replacement for decision-making or judgment.
+Claude is treated as an extension of our engineering process — focused on efficiency and consistency,
+not as a replacement for decision-making or judgment.
 
 ## ✅ Integration Approach
 
@@ -147,7 +135,8 @@ Claude's output is intended to **accelerate**, not automate, our engineering wor
 
 - Use Claude to reduce boilerplate and increase consistency.
 - All Claude-assisted contributions are reviewed as part of normal PR workflow.
-- Do not use Claude to generate sensitive logic (e.g., secrets management or compliance-critical flows) without engineer validation.
+- Do not use Claude to generate sensitive logic (e.g., secrets management or compliance-critical flows)
+  without engineer validation.
 
 You are encouraged to experiment, iterate, and improve Claude-generated content as you would any other code artifact.
 
@@ -164,7 +153,3 @@ For guidance on how to use Claude in this repository or to propose updates to th
 
 - `@your-name` – DevOps / Platform Engineering
 - `@another-name` – Workflow Standards Maintainer
-
----
-
-_Last updated: 2025-05-30_

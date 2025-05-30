@@ -1,8 +1,11 @@
 # Klever Labs Workflows
 
-This repository contains reusable, version-controlled GitHub Actions workflows and automation templates used across the Klever Labs organization. It serves as a central location for managing CI/CD pipelines, deployment processes, linting, testing, and other DevOps tasks consistently across all applications and services.
+This repository contains reusable, version-controlled GitHub Actions workflows and automation templates used across
+the Klever Labs organization. It serves as a central location for managing CI/CD pipelines, deployment processes,
+linting, testing, and other DevOps tasks consistently across all applications and services.
 
-By centralizing workflows, we reduce duplication, enforce best practices, and streamline development and deployment processes across projects.
+By centralizing workflows, we reduce duplication, enforce best practices, and streamline development and deployment
+processes across projects.
 
 ## Table of Contents
 
@@ -35,7 +38,7 @@ jobs:
 
 ## Repository Structure
 
-```
+```text
 workflows/
 │
 ├── README.md                # This file
@@ -161,10 +164,9 @@ jobs:
 
 ### Composite Actions
 
-- **actions/setup-node** - Node.js setup with intelligent caching
-- **actions/setup-pnpm** - pnpm setup with automatic caching and dependency installation
-- **actions/cache-dependencies** - Smart dependency caching for various package managers
-- **actions/notify-slack** - Send customizable Slack notifications
+**Note**: These actions can only be used directly in your workflows, NOT within our reusable workflows.
+
+- **actions/setup-pnpm** - pnpm setup with automatic caching (see [usage notes](actions/setup-pnpm/README.md))
 
 ## Contributing
 
@@ -199,7 +201,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 For questions, issues, or contributions, please contact:
 
-- DevOps Team: devops@klever-labs.com
+- DevOps Team: <devops@klever-labs.com>
 - GitHub Issues: [Create an issue](https://github.com/klever-labs/workflows/issues)
 
 ---

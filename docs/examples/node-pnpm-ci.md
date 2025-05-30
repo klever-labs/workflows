@@ -63,9 +63,9 @@ jobs:
       pnpm-version: '8'
 ```
 
-## Using the setup-pnpm Action
+## Setting up pnpm in Custom Workflows
 
-For custom workflows, use the `setup-pnpm` composite action:
+For custom workflows that need pnpm, use this pattern:
 
 ```yaml
 name: Custom Build
@@ -81,10 +81,27 @@ jobs:
         with:
           node-version: '20.x'
           
-      - name: Setup pnpm with caching
-        uses: klever-labs/workflows/actions/setup-pnpm@main
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
         with:
           version: '8'
+          
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+          
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+            
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
           
       - name: Custom build steps
         run: |
@@ -114,6 +131,7 @@ To migrate your existing workflow:
 
 1. **Option 1: Direct Replacement**
    Replace your entire workflow file with:
+
    ```yaml
    name: CI
    on:
@@ -129,6 +147,7 @@ To migrate your existing workflow:
 
 2. **Option 2: Gradual Migration**
    Keep your workflow but use the composite action:
+
    ```yaml
    steps:
      - uses: actions/checkout@v4
@@ -161,14 +180,17 @@ jobs:
 ## Troubleshooting
 
 ### Cache Issues
+
 - The workflow automatically caches pnpm store based on `pnpm-lock.yaml`
 - Cache is restored even if the exact key doesn't match (uses restore-keys)
 
 ### Custom Commands
+
 - All command inputs support full shell commands
 - Use quotes for commands with special characters
 - Commands run in the specified working directory
 
 ### Test Failures
+
 - Tests are set to `continue-on-error: true` by default
 - To make tests required, use a custom test command that exits with proper code
