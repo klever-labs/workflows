@@ -255,12 +255,37 @@ jobs:
             echo "Warning: pre-build requested but no Makefile target found"
           fi
 
+      - name: Set GCP Project ID
+        if: ${{ inputs.registry_name == 'gcr.io' }}
+        id: gcp-project
+        run: |
+          # Extract project ID from service account or use provided secret
+          project_id="${{ secrets.gcp_project_id }}"
+          
+          # If project ID is not provided as a secret, try to extract from service account JSON
+          if [ -z "$project_id" ] && [ -n "${{ secrets.gcp_cloud_run_sa }}" ]; then
+            echo "Attempting to extract project ID from service account..."
+            project_id=$(echo '${{ secrets.gcp_cloud_run_sa }}' | jq -r '.project_id // empty' 2>/dev/null || echo "")
+          fi
+          
+          if [ -z "$project_id" ]; then
+            echo "❌ ERROR: Could not determine GCP project ID!"
+            echo "Please provide either:"
+            echo "1. gcp_project_id secret"
+            echo "2. Service account JSON with project_id field"
+            exit 1
+          fi
+          
+          echo "✓ Using GCP Project ID: $project_id"
+          echo "project_id=$project_id" >> "$GITHUB_OUTPUT"
+
       - name: Ensure GCR artifact repository exists
         if: ${{ inputs.registry_name == 'gcr.io' }}
         run: |
           set +e
+          project_id="${{ steps.gcp-project.outputs.project_id }}"
           gcloud artifacts repositories describe gcr.io \
-            --project "${{ secrets.gcp_project_id }}" \
+            --project "$project_id" \
             --location us
           if [ $? -eq 1 ]; then
             gcloud artifacts repositories create gcr.io \
@@ -269,7 +294,7 @@ jobs:
               --immutable-tags \
               --async \
               --disable-vulnerability-scanning \
-              --project "${{ secrets.gcp_project_id }}"
+              --project "$project_id"
           fi
 
       - name: Prepare Docker metadata
@@ -277,7 +302,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ inputs.registry_name == 'gcr.io' && format('{0}/{1}/{2}', inputs.registry_name, secrets.gcp_project_id, github.event.repository.name) || format('{0}/{1}', inputs.registry_name, github.event.repository.name) }}
+            ${{ inputs.registry_name == 'gcr.io' && 
+                format('{0}/{1}/{2}', inputs.registry_name, steps.gcp-project.outputs.project_id, github.event.repository.name) || 
+                format('{0}/{1}', inputs.registry_name, github.event.repository.name) }}
           tags: |
             type=ref,event=branch,suffix=-latest
             type=ref,event=pr
