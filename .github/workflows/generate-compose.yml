@@ -1,0 +1,165 @@
+name: Generate Docker Compose
+
+on:
+  workflow_call:
+    inputs:
+      services_config:
+        type: string
+        required: true
+        description: 'JSON array configuration for services'
+      environment_type:
+        type: string
+        default: 'prod'
+        description: 'Deployment environment (dev, staging, prod)'
+      artifact_name:
+        type: string
+        default: 'docker-compose-generated'
+        description: 'Name for the artifact containing the compose file'
+    outputs:
+      artifact_name:
+        description: 'Name of the artifact containing the compose file'
+        value: ${{ inputs.artifact_name }}
+      compose_content:
+        description: 'Base64 encoded compose file content (for small files)'
+        value: ${{ jobs.generate.outputs.compose_content }}
+
+jobs:
+  generate:
+    name: Generate Docker Compose
+    runs-on: ubuntu-latest
+    outputs:
+      compose_content: ${{ steps.encode.outputs.content }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate inputs
+        run: |
+          echo "Validating services configuration..."
+          if ! echo '${{ inputs.services_config }}' | jq empty 2>/dev/null; then
+            echo "❌ services_config must be valid JSON"
+            exit 1
+          fi
+
+          # Validate that it's an array with required fields
+          if ! echo '${{ inputs.services_config }}' | jq -e '.[].service_name' >/dev/null 2>&1; then
+            echo "❌ Each service must have a service_name"
+            exit 1
+          fi
+
+          if ! echo '${{ inputs.services_config }}' | jq -e '.[].image' >/dev/null 2>&1; then
+            echo "❌ Each service must have an image"
+            exit 1
+          fi
+
+      - name: Check Docker images availability
+        run: |
+          echo '${{ inputs.services_config }}' | jq -r '.[].image' | while read -r image; do
+            echo "Checking image: $image"
+            if ! docker manifest inspect "$image" > /dev/null 2>&1; then
+              echo "⚠️  Warning: Image $image might not be available"
+            fi
+          done
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install pyyaml
+
+      - name: Download workflow scripts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          echo "Downloading scripts from klever-labs/workflows..."
+          gh release download \
+            -R klever-labs/workflows \
+            -p 'scripts.tar.gz' \
+            --clobber || {
+              echo "Failed to download scripts.tar.gz, trying latest release..."
+              gh release download latest \
+                -R klever-labs/workflows \
+                -p 'scripts.tar.gz' \
+                --clobber
+            }
+
+          if [ -f "scripts.tar.gz" ]; then
+            tar -xzf scripts.tar.gz
+            echo "✓ Extracted scripts"
+            rm scripts.tar.gz
+          else
+            echo "❌ scripts.tar.gz not found"
+            exit 1
+          fi
+
+      - name: Generate docker-compose.yml
+        run: |
+          echo "Generating compose file from services configuration..."
+          echo '${{ inputs.services_config }}' > services-config.json
+
+          # Add environment-specific settings to the config
+          if [ "${{ inputs.environment_type }}" = "prod" ]; then
+            # Update config to enable prod features if not already set
+            jq '.[0] += {
+              "env": "prod",
+              "enable_retry": true,
+              "enable_rate_limit": true,
+              "enable_monitoring": true
+            }' services-config.json > temp.json && mv temp.json services-config.json
+          fi
+
+          python3 scripts/generate-compose.py \
+            --config-file services-config.json \
+            --output docker-compose.yml
+
+          rm -f services-config.json
+
+          echo "✅ Generated docker-compose.yml"
+          echo "File size: $(stat -c%s docker-compose.yml 2>/dev/null || stat -f%z docker-compose.yml) bytes"
+
+      - name: Validate generated compose file
+        run: |
+          echo "Validating generated compose file..."
+          python3 -c "import yaml; yaml.safe_load(open('docker-compose.yml'))"
+          echo "✅ Compose file is valid YAML"
+
+      - name: Upload compose file as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: docker-compose.yml
+          retention-days: 1
+
+      - name: Encode compose file for output
+        id: encode
+        run: |
+          # For smaller files, also provide as base64 output
+          if [ "$(stat -c%s docker-compose.yml 2>/dev/null || stat -f%z docker-compose.yml)" -lt 65000 ]; then
+            CONTENT=$(base64 -w 0 docker-compose.yml 2>/dev/null || base64 docker-compose.yml | tr -d '\n')
+            echo "content=${CONTENT}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate summary
+        run: |
+          {
+            echo "## 📋 Generated Docker Compose"
+            echo ""
+            echo "**Environment:** ${{ inputs.environment_type }}"
+            echo "**Artifact:** ${{ inputs.artifact_name }}"
+            echo ""
+            echo "### Services Generated:"
+            echo ""
+            echo '${{ inputs.services_config }}' | jq -r '.[] | "- **\(.service_name)**: `\(.image)`"'
+            echo ""
+            echo "<details>"
+            echo "<summary>View Compose File</summary>"
+            echo ""
+            echo '```yaml'
+            head -100 docker-compose.yml
+            echo '```'
+            echo ""
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"

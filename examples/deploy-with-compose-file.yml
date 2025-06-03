@@ -1,0 +1,19 @@
+name: Deploy with Compose File
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    uses: klever-labs/workflows/.github/workflows/deploy-swarm.yml@main
+    with:
+      repository_name: my-app
+      compose_file: docker/compose.prod.yml  # Path to your compose file
+      environment_type: prod
+      deployment_strategy: rolling
+    secrets:
+      portainer_url: ${{ secrets.PORTAINER_URL }}
+      portainer_api_token: ${{ secrets.PORTAINER_API_TOKEN }}
+      twingate_sa: ${{ secrets.TWINGATE_SERVICE_ACCOUNT }}  # Optional

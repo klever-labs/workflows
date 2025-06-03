@@ -1,5 +1,7 @@
 .PHONY: act test-ci validate lint shellcheck yaml-lint fix-yaml help
 
+ACT_PARMS ?= --container-architecture linux/amd64 -P ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-latest
+
 # Default target
 help:
 	@echo "Available targets:"
@@ -15,39 +17,38 @@ help:
 act:
 	@echo "Running full CI workflow..."
 	@act push \
-		--container-architecture linux/amd64 \
-		-P ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-latest \
+		$(ACT_PARMS) \
 		-W .github/workflows/ci.yml
 
 # Test individual CI jobs
 test-ci:
 	@echo "Testing CI jobs individually..."
 	@echo "1. Testing ShellCheck..."
-	@act push --container-architecture linux/amd64 -j shellcheck || true
+	@act push $(ACT_PARMS) -j shellcheck || true
 	@echo "2. Testing YAML Lint..."
-	@act push --container-architecture linux/amd64 -j yaml-lint || true
+	@act push $(ACT_PARMS) -j yaml-lint || true
 	@echo "3. Testing Workflow Validation..."
-	@act push --container-architecture linux/amd64 -j validate-workflows || true
+	@act push $(ACT_PARMS) -j validate-workflows || true
 
 # Validate workflows only
 validate:
 	@echo "Validating workflows..."
-	@act push --container-architecture linux/amd64 -j validate-workflows
+	@act push $(ACT_PARMS) -j validate-workflows
 
 # Run linting checks
 lint:
 	@echo "Running linting checks..."
-	@act push --container-architecture linux/amd64 -j yaml-lint -j shellcheck -j markdown-lint
+	@act push $(ACT_PARMS) -j yaml-lint -j shellcheck -j markdown-lint
 
 # Run shellcheck only
 shellcheck:
 	@echo "Running ShellCheck..."
-	@act push --container-architecture linux/amd64 -j shellcheck
+	@act push $(ACT_PARMS) -j shellcheck
 
 # Run yamllint only
 yaml-lint:
 	@echo "Running YAML lint..."
-	@act push --container-architecture linux/amd64 -j yaml-lint
+	@act push $(ACT_PARMS) -j yaml-lint
 
 # Fix YAML formatting issues
 fix-yaml:

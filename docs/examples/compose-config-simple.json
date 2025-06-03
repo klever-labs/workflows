@@ -1,0 +1,23 @@
+{
+  "services": ["api", "frontend"],
+  "images": {
+    "api": "myapp/api:v1.0.0",
+    "frontend": "myapp/frontend:v1.0.0"
+  },
+  "domains": ["api", "app"],
+  "ports": ["8080", "3000"],
+  "fqdn": "example.com",
+  "env": "prod",
+  "replicas": 3,
+  "health_checks": true,
+  "resource_limits": true,
+  "enable_monitoring": true,
+  "enable_retry": true,
+  "enable_rate_limit": true,
+  "service_envs": {
+    "api": {
+      "DATABASE_URL": "postgres://db:5432/myapp",
+      "REDIS_URL": "redis://cache:6379"
+    }
+  }
+}

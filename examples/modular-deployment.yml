@@ -1,0 +1,156 @@
+name: Modular Deployment Examples
+
+on:
+  workflow_dispatch:
+    inputs:
+      example:
+        type: choice
+        description: 'Which example to run'
+        required: true
+        options:
+          - generate-only
+          - deploy-only
+          - generate-and-deploy
+          - multi-stage
+
+jobs:
+  # Example 1: Generate compose file only (for testing/validation)
+  generate-only:
+    if: inputs.example == 'generate-only'
+    uses: klever-labs/workflows/.github/workflows/generate-compose.yml@main
+    with:
+      services_config: |
+        [
+          {
+            "service_name": "api",
+            "image": "nginx:latest",
+            "port": 8080,
+            "domain": "api",
+            "replicas": 2
+          }
+        ]
+      environment_type: staging
+
+  # Example 2: Deploy existing compose file
+  deploy-only:
+    if: inputs.example == 'deploy-only'
+    uses: klever-labs/workflows/.github/workflows/deploy-compose.yml@main
+    with:
+      stack_name: my-app-prod
+      compose_file: docker/compose.prod.yml
+      environment_type: prod
+    secrets:
+      portainer_url: ${{ secrets.PORTAINER_URL }}
+      portainer_api_token: ${{ secrets.PORTAINER_API_TOKEN }}
+
+  # Example 3: Generate and deploy separately (with validation in between)
+  generate-for-validation:
+    if: inputs.example == 'generate-and-deploy'
+    uses: klever-labs/workflows/.github/workflows/generate-compose.yml@main
+    with:
+      services_config: |
+        [
+          {
+            "service_name": "web",
+            "image": "myapp/web:latest",
+            "port": 3000,
+            "domain": "app"
+          },
+          {
+            "service_name": "api",
+            "image": "myapp/api:latest",
+            "port": 8080,
+            "domain": "api"
+          }
+        ]
+      artifact_name: compose-to-validate
+
+  validate-compose:
+    if: inputs.example == 'generate-and-deploy'
+    needs: generate-for-validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download compose file
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-to-validate
+
+      - name: Validate compose file
+        run: |
+          echo "Running custom validation..."
+          # Your validation logic here
+          cat docker-compose.yml
+
+  deploy-validated:
+    if: inputs.example == 'generate-and-deploy'
+    needs: [generate-for-validation, validate-compose]
+    uses: klever-labs/workflows/.github/workflows/deploy-compose.yml@main
+    with:
+      stack_name: validated-app-staging
+      compose_artifact: compose-to-validate
+      environment_type: staging
+    secrets:
+      portainer_url: ${{ secrets.PORTAINER_URL }}
+      portainer_api_token: ${{ secrets.PORTAINER_API_TOKEN }}
+
+  # Example 4: Multi-stage deployment with different configs
+  generate-staging:
+    if: inputs.example == 'multi-stage'
+    uses: klever-labs/workflows/.github/workflows/generate-compose.yml@main
+    with:
+      services_config: |
+        [
+          {
+            "service_name": "api",
+            "image": "myapp/api:staging",
+            "port": 8080,
+            "replicas": 1,
+            "env": "staging"
+          }
+        ]
+      environment_type: staging
+      artifact_name: compose-staging
+
+  deploy-staging:
+    if: inputs.example == 'multi-stage'
+    needs: generate-staging
+    uses: klever-labs/workflows/.github/workflows/deploy-compose.yml@main
+    with:
+      stack_name: myapp-staging
+      compose_artifact: compose-staging
+      environment_type: staging
+    secrets:
+      portainer_url: ${{ secrets.PORTAINER_URL }}
+      portainer_api_token: ${{ secrets.PORTAINER_API_TOKEN }}
+
+  generate-prod:
+    if: inputs.example == 'multi-stage' && needs.deploy-staging.outputs.deployment_status == 'success'
+    needs: deploy-staging
+    uses: klever-labs/workflows/.github/workflows/generate-compose.yml@main
+    with:
+      services_config: |
+        [
+          {
+            "service_name": "api",
+            "image": "myapp/api:prod",
+            "port": 8080,
+            "replicas": 3,
+            "env": "prod",
+            "enable_monitoring": true,
+            "enable_retry": true
+          }
+        ]
+      environment_type: prod
+      artifact_name: compose-prod
+
+  deploy-prod:
+    if: inputs.example == 'multi-stage'
+    needs: [deploy-staging, generate-prod]
+    uses: klever-labs/workflows/.github/workflows/deploy-compose.yml@main
+    with:
+      stack_name: myapp-prod
+      compose_artifact: compose-prod
+      environment_type: prod
+    secrets:
+      portainer_url: ${{ secrets.PORTAINER_URL }}
+      portainer_api_token: ${{ secrets.PORTAINER_API_TOKEN }}

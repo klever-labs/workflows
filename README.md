@@ -163,7 +163,8 @@ jobs:
 - **lint.yml** - Multi-language linting and code quality checks
 - **node-ci.yml** - Complete Node.js CI workflow with pnpm support
 - **node-ci-simple.yml** - Simplified Node.js CI in a single job
-- **docker-build.yml** - Multi-registry Docker build and push workflow with config file support
+- **docker-build.yml** - Multi-registry Docker build and push workflow
+- **deploy-swarm.yml** - Docker Swarm deployment via Portainer with config file support
 
 ### Technology-Specific Workflows
 
@@ -180,14 +181,17 @@ jobs:
 
 ## Automated Releases
 
-This repository automatically creates releases when changes are pushed to the `dockerfiles/` or `configs/` directories:
+This repository automatically creates releases when changes are pushed to the `dockerfiles/`, `configs/`, or `scripts/` directories:
 
 - **Automatic version bumping** based on commit messages:
   - `feat!:` or `feature!:` → Major version bump (breaking changes)
   - `feat:` or `feature:` → Minor version bump (new features)
   - Other commits → Patch version bump (fixes and updates)
 - **Manual releases** via workflow dispatch with custom version bump level
-- **Release assets** automatically include `dockerfiles.tar.gz` and `configs.tar.gz`
+- **Release assets** automatically include:
+  - `dockerfiles.tar.gz` - All Dockerfiles for different build flavors
+  - `configs.tar.gz` - Configuration files (nginx.conf, etc.)
+  - `scripts.tar.gz` - All scripts needed by workflows
 
 ## Contributing
 

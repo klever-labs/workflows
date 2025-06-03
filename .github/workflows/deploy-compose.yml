@@ -1,0 +1,294 @@
+name: Deploy Compose to Portainer
+
+on:
+  workflow_call:
+    inputs:
+      stack_name:
+        type: string
+        required: true
+        description: 'Stack name for Portainer deployment'
+      compose_file:
+        type: string
+        required: false
+        description: 'Path to compose file in repository (if local)'
+      compose_artifact:
+        type: string
+        required: false
+        description: 'Name of artifact containing compose file (if from previous job)'
+      compose_content:
+        type: string
+        required: false
+        description: 'Base64 encoded compose file content (if passed directly)'
+      environment_type:
+        type: string
+        default: 'prod'
+        description: 'Deployment environment (dev, staging, prod)'
+      portainer_endpoint_id:
+        type: string
+        description: 'Portainer endpoint ID'
+        default: '1'
+      portainer_swarm_id:
+        type: string
+        description: 'Portainer swarm ID'
+        default: ''
+      prune_services:
+        type: boolean
+        default: true
+        description: 'Remove services not defined in compose file'
+      run_smoke_tests:
+        type: boolean
+        default: true
+        description: 'Run smoke tests after deployment'
+      pre_deploy_commands:
+        type: string
+        required: false
+        description: 'Commands to run before deployment (e.g., migrations, setup)'
+        default: ''
+      post_deploy_commands:
+        type: string
+        required: false
+        description: 'Commands to run after deployment (e.g., notifications, cleanup)'
+        default: ''
+    secrets:
+      portainer_url:
+        required: true
+        description: 'Portainer API URL'
+      portainer_api_token:
+        required: true
+        description: 'Portainer API token'
+      twingate_sa:
+        required: false
+        description: 'Twingate service account key'
+    outputs:
+      deployment_status:
+        description: 'Deployment status (success/failed)'
+        value: ${{ jobs.deploy.outputs.status }}
+      stack_id:
+        description: 'Portainer stack ID'
+        value: ${{ jobs.deploy.outputs.stack_id }}
+
+jobs:
+  deploy:
+    name: Deploy to Portainer
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.deploy.outputs.status }}
+      stack_id: ${{ steps.deploy.outputs.stack-id }}
+    steps:
+      - name: Checkout repository
+        if: inputs.compose_file != ''
+        uses: actions/checkout@v4
+
+      - name: Download compose artifact
+        if: inputs.compose_artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.compose_artifact }}
+
+      - name: Decode compose content
+        if: inputs.compose_content != ''
+        run: |
+          echo "${{ inputs.compose_content }}" | base64 -d > docker-compose.yml
+
+      - name: Copy local compose file
+        if: inputs.compose_file != ''
+        run: |
+          if [ -f "${{ inputs.compose_file }}" ]; then
+            cp "${{ inputs.compose_file }}" docker-compose.yml
+          else
+            echo "❌ Compose file not found: ${{ inputs.compose_file }}"
+            exit 1
+          fi
+
+      - name: Verify compose file exists
+        run: |
+          if [ ! -f "docker-compose.yml" ]; then
+            echo "❌ No docker-compose.yml found"
+            echo "Provide one of: compose_file, compose_artifact, or compose_content"
+            exit 1
+          fi
+          echo "✅ Found docker-compose.yml"
+          echo "File size: $(stat -c%s docker-compose.yml 2>/dev/null || stat -f%z docker-compose.yml) bytes"
+
+      - name: Check Twingate availability
+        id: check-twingate
+        run: |
+          if [ -n "${{ secrets.twingate_sa }}" ]; then
+            echo "has_twingate=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_twingate=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Twingate
+        uses: twingate/github-action@v1
+        if: steps.check-twingate.outputs.has_twingate == 'true'
+        with:
+          service-key: ${{ secrets.twingate_sa }}
+
+      - name: Run pre-deployment commands
+        if: inputs.pre_deploy_commands != ''
+        run: |
+          echo "Running pre-deployment commands..."
+          commands='${{ inputs.pre_deploy_commands }}'
+          echo "$commands" | jq -r '.[]' | while read -r cmd; do
+            echo "Executing: $cmd"
+            eval "$cmd"
+          done
+
+      - name: Deploy Stack to Portainer
+        id: deploy
+        env:
+          PORTAINER_URL: ${{ secrets.portainer_url }}
+          PORTAINER_TOKEN: ${{ secrets.portainer_api_token }}
+          ENDPOINT_ID: ${{ inputs.portainer_endpoint_id }}
+          PORTAINER_SWARM_ID: ${{ inputs.portainer_swarm_id }}
+          STACK_NAME: ${{ inputs.stack_name }}
+          PRUNE_SERVICES: ${{ inputs.prune_services }}
+        run: |
+          # Function to make API calls with retry
+          api_call_with_retry() {
+            local method=$1
+            local url=$2
+            local data=$3
+            local retries=3
+            local delay=10
+
+            for i in $(seq 1 "$retries"); do
+              echo "Attempt $i of $retries..." >&2
+
+              if [ "$method" = "POST" ]; then
+                if [ -n "$data" ]; then
+                  response=$(curl -s -w "\n%{http_code}" -X POST \
+                    -H "X-API-Key: $PORTAINER_TOKEN" \
+                    -H "Content-Type: application/json" \
+                    -d "$data" \
+                    "$url" 2>/dev/null)
+                else
+                  response=$(curl -s -w "\n%{http_code}" -X POST \
+                    -H "X-API-Key: $PORTAINER_TOKEN" \
+                    -H "Content-Type: multipart/form-data" \
+                    -F "Name=${STACK_NAME}" \
+                    -F "SwarmID=${PORTAINER_SWARM_ID}" \
+                    -F "file=@docker-compose.yml" \
+                    "$url" 2>/dev/null)
+                fi
+              elif [ "$method" = "PUT" ]; then
+                response=$(curl -s -w "\n%{http_code}" -X PUT \
+                  -H "X-API-Key: $PORTAINER_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$data" \
+                  "$url" 2>/dev/null)
+              else
+                response=$(curl -s -w "\n%{http_code}" -X GET \
+                  -H "X-API-Key: $PORTAINER_TOKEN" \
+                  "$url" 2>/dev/null)
+              fi
+
+              http_code=$(echo "$response" | tail -n 1)
+              body=$(echo "$response" | sed '$d')
+
+              if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+                echo "$body"
+                return 0
+              fi
+
+              echo "API call failed with HTTP ${http_code}" >&2
+              if [ "$i" -lt "$retries" ]; then
+                echo "Retrying in ${delay} seconds..." >&2
+                sleep "$delay"
+              fi
+            done
+
+            echo "❌ API call failed after ${retries} attempts" >&2
+            return 1
+          }
+
+          # Get SwarmID if not provided
+          if [ -z "$PORTAINER_SWARM_ID" ]; then
+            echo "Fetching Swarm ID..."
+            endpoint_info=$(api_call_with_retry "GET" "${PORTAINER_URL}/api/endpoints/${ENDPOINT_ID}" "")
+            PORTAINER_SWARM_ID=$(echo "$endpoint_info" | jq -r ".Snapshots[0].DockerSnapshotRaw.Info.Swarm.Cluster.ID")
+          fi
+
+          # Check if stack exists
+          echo "Checking if stack exists..."
+          stacks=$(api_call_with_retry "GET" "${PORTAINER_URL}/api/stacks" "")
+          STACK_ID=$(echo "$stacks" | jq -r ".[] | select(.Name==\"$STACK_NAME\") | .Id")
+
+          if [ -z "$STACK_ID" ]; then
+            echo "Creating new stack: $STACK_NAME"
+
+            if result=$(api_call_with_retry "POST" \
+              "${PORTAINER_URL}/api/stacks/create/swarm/file?endpointId=${ENDPOINT_ID}" ""); then
+              STACK_ID=$(echo "$result" | jq -r ".Id")
+              echo "✅ Stack created successfully with ID: ${STACK_ID}"
+              echo "status=success" >> "$GITHUB_OUTPUT"
+              echo "stack-id=${STACK_ID}" >> "$GITHUB_OUTPUT"
+            else
+              echo "❌ Failed to create stack"
+              echo "status=failed" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          else
+            echo "Updating existing stack: ${STACK_NAME}"
+            COMPOSE_CONTENT=$(jq -Rs . < docker-compose.yml)
+
+            # Determine prune setting
+            PRUNE_SETTING="false"
+            if [ "$PRUNE_SERVICES" = "true" ]; then
+              PRUNE_SETTING="true"
+              echo "⚠️  Pruning enabled: Services not in compose file will be removed"
+            fi
+
+            # Force pull images and optionally prune services
+            if result=$(api_call_with_retry "PUT" \
+              "${PORTAINER_URL}/api/stacks/${STACK_ID}?endpointId=${ENDPOINT_ID}" \
+              "{\"StackFileContent\": $COMPOSE_CONTENT, \"Prune\": $PRUNE_SETTING, \"PullImage\": true}"); then
+              echo "✅ Stack updated successfully"
+              echo "status=success" >> "$GITHUB_OUTPUT"
+              echo "stack-id=${STACK_ID}" >> "$GITHUB_OUTPUT"
+            else
+              echo "❌ Failed to update stack"
+              echo "status=failed" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          fi
+
+      - name: Run post-deployment commands
+        if: inputs.post_deploy_commands != '' && success()
+        run: |
+          echo "Running post-deployment commands..."
+          commands='${{ inputs.post_deploy_commands }}'
+          echo "$commands" | jq -r '.[]' | while read -r cmd; do
+            echo "Executing: $cmd"
+            eval "$cmd"
+          done
+
+      - name: Generate deployment summary
+        if: always()
+        run: |
+          {
+            echo "## 🚀 Deployment Summary"
+            echo ""
+            echo "**Stack Name:** ${{ inputs.stack_name }}"
+            echo "**Environment:** ${{ inputs.environment_type }}"
+            echo "**Timestamp:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+            echo ""
+
+            if [ "${{ steps.deploy.outputs.status }}" = "success" ]; then
+              echo "**Status:** ✅ Deployment successful"
+              echo "**Stack ID:** ${{ steps.deploy.outputs.stack-id }}"
+            else
+              echo "**Status:** ❌ Deployment failed"
+            fi
+
+            echo ""
+            echo "### Compose File Source"
+            if [ -n "${{ inputs.compose_file }}" ]; then
+              echo "- Local file: \`${{ inputs.compose_file }}\`"
+            elif [ -n "${{ inputs.compose_artifact }}" ]; then
+              echo "- Artifact: \`${{ inputs.compose_artifact }}\`"
+            else
+              echo "- Direct content provided"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

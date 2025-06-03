@@ -1,0 +1,174 @@
+name: Deploy to Docker Swarm
+
+# Simplified workflow that uses the modular generate and deploy workflows
+
+on:
+  workflow_call:
+    inputs:
+      repository_name:
+        type: string
+        required: true
+        description: 'Name of the repository to deploy'
+      compose_file:
+        type: string
+        required: false
+        description: 'Path to existing docker-compose.yml file (if provided, skips generation)'
+      services_config:
+        type: string
+        required: false
+        description: 'JSON array configuration for services (used if compose_file not provided)'
+      environment_type:
+        type: string
+        default: 'prod'
+        description: 'Deployment environment (dev, staging, prod)'
+      pre_deploy_commands:
+        type: string
+        required: false
+        description: 'Commands to run before deployment (JSON array)'
+      post_deploy_commands:
+        type: string
+        required: false
+        description: 'Commands to run after deployment (JSON array)'
+      portainer_endpoint_id:
+        type: string
+        description: 'Portainer endpoint ID'
+        default: '1'
+      portainer_swarm_id:
+        type: string
+        description: 'Portainer swarm ID'
+        default: ''
+      prune_services:
+        type: boolean
+        default: true
+        description: 'Remove services not defined in compose file'
+    secrets:
+      portainer_url:
+        required: true
+        description: 'Portainer API URL'
+      portainer_api_token:
+        required: true
+        description: 'Portainer API token'
+      twingate_sa:
+        required: false
+        description: 'Twingate service account key'
+
+jobs:
+  prepare:
+    name: Prepare Deployment
+    runs-on: ubuntu-latest
+    outputs:
+      stack_name: ${{ steps.config.outputs.stack_name }}
+      deployment_id: ${{ steps.config.outputs.deployment_id }}
+      needs_generation: ${{ steps.config.outputs.needs_generation }}
+    steps:
+      - name: Generate deployment config
+        id: config
+        run: |
+          STACK_NAME="${{ inputs.repository_name }}-${{ inputs.environment_type }}"
+          DEPLOYMENT_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_NUMBER}"
+
+          echo "stack_name=$STACK_NAME" >> "$GITHUB_OUTPUT"
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+
+          # Determine if we need to generate compose file
+          if [ -n "${{ inputs.compose_file }}" ]; then
+            echo "needs_generation=false" >> "$GITHUB_OUTPUT"
+            echo "Using provided compose file"
+          elif [ -n "${{ inputs.services_config }}" ]; then
+            echo "needs_generation=true" >> "$GITHUB_OUTPUT"
+            echo "Will generate compose file from config"
+          else
+            echo "❌ Either compose_file or services_config must be provided"
+            exit 1
+          fi
+
+  generate:
+    name: Generate Compose
+    needs: prepare
+    if: needs.prepare.outputs.needs_generation == 'true'
+    uses: klever-labs/workflows/.github/workflows/generate-compose.yml@main
+    with:
+      services_config: ${{ inputs.services_config }}
+      environment_type: ${{ inputs.environment_type }}
+      artifact_name: compose-${{ needs.prepare.outputs.deployment_id }}
+
+  deploy:
+    name: Deploy Stack
+    needs: [prepare, generate]
+    if: always() && needs.prepare.result == 'success'
+    uses: klever-labs/workflows/.github/workflows/deploy-compose.yml@main
+    with:
+      stack_name: ${{ needs.prepare.outputs.stack_name }}
+      compose_file: >-
+        ${{ needs.prepare.outputs.needs_generation == 'false' && inputs.compose_file || '' }}
+      compose_artifact: >-
+        ${{ needs.prepare.outputs.needs_generation == 'true' &&
+            format('compose-{0}', needs.prepare.outputs.deployment_id) || '' }}
+      environment_type: ${{ inputs.environment_type }}
+      portainer_endpoint_id: ${{ inputs.portainer_endpoint_id }}
+      portainer_swarm_id: ${{ inputs.portainer_swarm_id }}
+      prune_services: ${{ inputs.prune_services }}
+      pre_deploy_commands: ${{ inputs.pre_deploy_commands }}
+      post_deploy_commands: ${{ inputs.post_deploy_commands }}
+    secrets:
+      portainer_url: ${{ secrets.portainer_url }}
+      portainer_api_token: ${{ secrets.portainer_api_token }}
+      twingate_sa: ${{ secrets.twingate_sa }}
+
+  summary:
+    name: Deployment Summary
+    needs: [prepare, generate, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate final report
+        run: |
+          {
+            echo "## 📊 Deployment Report"
+            echo ""
+            echo "**Deployment ID:** \`${{ needs.prepare.outputs.deployment_id }}\`"
+            echo "**Stack Name:** \`${{ needs.prepare.outputs.stack_name }}\`"
+            echo "**Environment:** \`${{ inputs.environment_type }}\`"
+            echo "**Timestamp:** \`$(date -u +"%Y-%m-%d %H:%M:%S UTC")\`"
+            echo ""
+
+            # Generation status
+            if [ "${{ needs.prepare.outputs.needs_generation }}" = "true" ]; then
+              echo "### Generation"
+              if [ "${{ needs.generate.result }}" = "success" ]; then
+                echo "✅ Compose file generated successfully"
+              else
+                echo "❌ Compose file generation failed"
+              fi
+              echo ""
+            fi
+
+            # Deployment status
+            echo "### Deployment"
+            if [ "${{ needs.deploy.result }}" = "success" ]; then
+              echo "✅ Stack deployed successfully"
+            elif [ "${{ needs.deploy.result }}" = "skipped" ]; then
+              echo "⏭️  Deployment skipped"
+            else
+              echo "❌ Deployment failed"
+            fi
+            echo ""
+
+            # Configuration source
+            echo "### Configuration"
+            if [ -n "${{ inputs.compose_file }}" ]; then
+              echo "- Source: Local compose file (\`${{ inputs.compose_file }}\`)"
+            else
+              echo "- Source: Generated from services configuration"
+            fi
+
+            # Services info if available
+            if [ -n "${{ inputs.services_config }}" ]; then
+              echo ""
+              echo "### Services"
+              echo '${{ inputs.services_config }}' | jq -r '
+                .[]
+                | "- **\(.service_name)**: `\(.image)`"
+              ' 2>/dev/null || echo "Unable to parse services"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
