@@ -103,7 +103,12 @@ jobs:
           # Add environment-specific settings to the config
           if [ "${{ inputs.environment_type }}" = "prod" ]; then
             # Update config to enable prod features if not already set
-            jq '.[0] += {"env": "prod", "enable_retry": true, "enable_rate_limit": true, "enable_monitoring": true}' services-config.json > temp.json && mv temp.json services-config.json
+            jq '.[0] += {
+              "env": "prod",
+              "enable_retry": true,
+              "enable_rate_limit": true,
+              "enable_monitoring": true
+            }' services-config.json > temp.json && mv temp.json services-config.json
           fi
 
           python3 scripts/generate-compose.py \

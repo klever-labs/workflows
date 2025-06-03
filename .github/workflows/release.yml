@@ -31,7 +31,10 @@ jobs:
       dockerfiles_changed: ${{ steps.changes.outputs.dockerfiles }}
       configs_changed: ${{ steps.changes.outputs.configs }}
       scripts_changed: ${{ steps.changes.outputs.scripts }}
-      should_release: ${{ steps.changes.outputs.dockerfiles == 'true' || steps.changes.outputs.configs == 'true' || steps.changes.outputs.scripts == 'true' }}
+      should_release: >-
+        ${{ steps.changes.outputs.dockerfiles == 'true' ||
+            steps.changes.outputs.configs == 'true' ||
+            steps.changes.outputs.scripts == 'true' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -169,7 +172,9 @@ jobs:
             echo "level=${{ github.event.inputs.bump_level }}" >> "$GITHUB_OUTPUT"
           else
             # Auto-detect bump level based on commit messages
-            commit_messages=$(git log --format=%s ${{ steps.get-latest-tag.outputs.tag }}..HEAD 2>/dev/null || git log --format=%s)
+            commit_messages=$(git log --format=%s \
+              ${{ steps.get-latest-tag.outputs.tag }}..HEAD 2>/dev/null || \
+              git log --format=%s)
 
             if echo "$commit_messages" | grep -qE '^(feat|feature)(\(.+\))?!:'; then
               echo "level=major" >> "$GITHUB_OUTPUT"
@@ -288,7 +293,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ steps.bump-version.outputs.new_version }}" -m "Release ${{ steps.bump-version.outputs.new_version }}"
+          git tag -a "${{ steps.bump-version.outputs.new_version }}" \
+            -m "Release ${{ steps.bump-version.outputs.new_version }}"
           git push origin "${{ steps.bump-version.outputs.new_version }}"
 
       - name: Create GitHub release

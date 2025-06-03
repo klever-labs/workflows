@@ -99,8 +99,11 @@ jobs:
     uses: klever-labs/workflows/.github/workflows/deploy-compose.yml@main
     with:
       stack_name: ${{ needs.prepare.outputs.stack_name }}
-      compose_file: ${{ needs.prepare.outputs.needs_generation == 'false' && inputs.compose_file || '' }}
-      compose_artifact: ${{ needs.prepare.outputs.needs_generation == 'true' && format('compose-{0}', needs.prepare.outputs.deployment_id) || '' }}
+      compose_file: >-
+        ${{ needs.prepare.outputs.needs_generation == 'false' && inputs.compose_file || '' }}
+      compose_artifact: >-
+        ${{ needs.prepare.outputs.needs_generation == 'true' &&
+            format('compose-{0}', needs.prepare.outputs.deployment_id) || '' }}
       environment_type: ${{ inputs.environment_type }}
       portainer_endpoint_id: ${{ inputs.portainer_endpoint_id }}
       portainer_swarm_id: ${{ inputs.portainer_swarm_id }}
@@ -163,6 +166,9 @@ jobs:
             if [ -n "${{ inputs.services_config }}" ]; then
               echo ""
               echo "### Services"
-              echo '${{ inputs.services_config }}' | jq -r '.[] | "- **\(.service_name)**: `\(.image)`"' 2>/dev/null || echo "Unable to parse services"
+              echo '${{ inputs.services_config }}' | jq -r '
+                .[]
+                | "- **\(.service_name)**: `\(.image)`"
+              ' 2>/dev/null || echo "Unable to parse services"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
