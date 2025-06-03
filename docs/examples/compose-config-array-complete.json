@@ -1,0 +1,149 @@
+[
+  {
+    "service_name": "api",
+    "image": "myapp/api:v2.0",
+    "port": 8080,
+    "domain": "api",
+    "expose": true,
+    "networks": ["traefik-public", "backend", "shared-db"],
+    "environment": {
+      "NODE_ENV": "production",
+      "DATABASE_URL": "postgres://db:5432/myapp",
+      "REDIS_URL": "redis://cache:6379",
+      "API_KEY": "secret123"
+    },
+    "health_url": "/api/health",
+    "metrics_path": "/api/metrics",
+    "replicas": 3,
+    "resources": {
+      "limits": {"cpus": "2", "memory": "2G"},
+      "reservations": {"cpus": "1", "memory": "1G"}
+    },
+    "retry": {"attempts": 5, "interval": "200ms"},
+    "rate_limit": {"average": 200, "burst": 100},
+    "constraints": ["node.labels.type==api", "node.labels.zone==us-east-1a"],
+    "health_check": {
+      "test": ["CMD", "curl", "-f", "http://localhost:8080/api/health"],
+      "interval": "30s",
+      "timeout": "10s",
+      "retries": 5,
+      "start_period": "60s"
+    },
+    "env": "prod",
+    "enable_retry": true,
+    "enable_rate_limit": true,
+    "enable_monitoring": true,
+    "use_secrets": true
+  },
+  {
+    "service_name": "frontend",
+    "image": "myapp/frontend:v2.0",
+    "port": 3000,
+    "domain": "app",
+    "expose": true,
+    "networks": ["traefik-public"],
+    "environment": {
+      "NEXT_PUBLIC_API_URL": "https://api.example.com",
+      "NODE_ENV": "production"
+    },
+    "volumes": [
+      "/nfs/static-assets:/app/public/assets:ro"
+    ],
+    "health_url": "/health"
+  },
+  {
+    "service_name": "payment-worker",
+    "image": "myapp/payment-worker:v2.0",
+    "expose": false,
+    "networks": ["backend", "payment-gateway", "shared-db"],
+    "internal_port": 9000,
+    "environment": {
+      "DATABASE_URL": "postgres://db:5432/myapp",
+      "PAYMENT_API_KEY": "pk_live_xxx",
+      "PAYMENT_SECRET": "sk_live_xxx"
+    },
+    "resources": {
+      "limits": {"cpus": "2", "memory": "2G"},
+      "reservations": {"cpus": "1", "memory": "1G"}
+    },
+    "retry": {"attempts": 5, "interval": "500ms"},
+    "metrics_path": "/internal/metrics"
+  },
+  {
+    "service_name": "analytics-job",
+    "image": "myapp/analytics:v2.0",
+    "expose": false,
+    "networks": ["backend", "analytics-db"],
+    "internal_port": 9002,
+    "environment": {
+      "ANALYTICS_DB_URL": "clickhouse://analytics-db:8123/analytics",
+      "BATCH_SIZE": "10000"
+    },
+    "resources": {
+      "limits": {"cpus": "4", "memory": "8G"},
+      "reservations": {"cpus": "2", "memory": "4G"}
+    },
+    "volumes": [
+      {
+        "name": "analytics_temp",
+        "path": "/tmp/analytics",
+        "driver": "local"
+      },
+      {
+        "name": "analytics_output",
+        "path": "/output",
+        "driver": "nfs",
+        "backup": "true"
+      }
+    ],
+    "constraints": ["node.labels.type==compute"]
+  },
+  {
+    "service_name": "postgres",
+    "image": "postgres:15-alpine",
+    "expose": false,
+    "networks": ["database"],
+    "internal_port": 5432,
+    "environment": {
+      "POSTGRES_DB": "myapp",
+      "POSTGRES_USER": "myapp",
+      "POSTGRES_PASSWORD": "secret123"
+    },
+    "volumes": [
+      {
+        "name": "postgres_data",
+        "path": "/var/lib/postgresql/data",
+        "driver": "local",
+        "backup": "true"
+      }
+    ],
+    "resources": {
+      "limits": {"cpus": "4", "memory": "4G"},
+      "reservations": {"cpus": "2", "memory": "2G"}
+    },
+    "constraints": ["node.labels.storage==ssd"]
+  },
+  {
+    "service_name": "redis",
+    "image": "redis:7-alpine",
+    "expose": false,
+    "networks": ["backend"],
+    "internal_port": 6379,
+    "environment": {
+      "REDIS_PASSWORD": "redispass"
+    },
+    "volumes": [
+      {
+        "name": "redis_data",
+        "path": "/data",
+        "driver": "local"
+      }
+    ],
+    "health_check": {
+      "test": ["CMD", "redis-cli", "ping"],
+      "interval": "10s",
+      "timeout": "5s",
+      "retries": 3
+    }
+  }
+]

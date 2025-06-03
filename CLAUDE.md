@@ -28,6 +28,7 @@ workflows/
 │       ├── node-ci.yml      # Reusable: Complete Node.js CI workflow
 │       ├── node-ci-simple.yml # Reusable: Simplified Node.js CI
 │       ├── docker-build.yml # Reusable: Multi-registry Docker build
+│       ├── deploy-swarm.yml # Reusable: Docker Swarm deployment
 │       ├── build.yml        # Reusable: shared build pipeline
 │       ├── test.yml         # Reusable: shared testing pipeline
 │       ├── deploy.yml       # Reusable: deploy to staging/production
@@ -50,7 +51,15 @@ workflows/
 │
 ├── scripts/                 # Utility scripts
 │   ├── prepare-release.sh   # Create release archives
-│   └── test-*.sh           # Test scripts
+│   ├── generate-compose.py  # Generate Docker Compose files with Swarm features
+│   ├── validate-workflows.sh # Validate all workflows with actionlint
+│   ├── check-action-versions.sh # Check for outdated action versions
+│   ├── generate-workflow-docs.sh # Generate workflow documentation
+│   ├── test-reusable-workflow.sh # Test workflows locally with act
+│   ├── sync-workflow-secrets.sh # Analyze required secrets
+│   ├── demo-compose-generation.sh # Demo various compose configurations
+│   ├── run-compose-examples.sh # Run actual compose generation examples
+│   └── cleanup-temp.sh      # Cleanup temporary files
 │
 └── docs/                    # Documentation
     ├── usage.md
@@ -81,12 +90,18 @@ workflows/
 ### Validating Workflows
 
 ```bash
-# Validate workflow syntax locally (requires act or actionlint)
-actionlint .github/workflows/*.yml
+# Validate workflow syntax locally (requires actionlint)
+./scripts/validate-workflows.sh
+
+# Check for outdated action versions
+./scripts/check-action-versions.sh
 
 # Test workflows locally with act
 act -l  # List available workflows
 act push  # Run push event workflows
+
+# Test a specific reusable workflow
+./scripts/test-reusable-workflow.sh node-ci
 ```
 
 ### Working with GitHub CLI
@@ -100,6 +115,22 @@ gh run list
 
 # Download workflow artifacts
 gh run download <run-id>
+```
+
+### Utility Scripts
+
+```bash
+# Generate documentation for all workflows
+./scripts/generate-workflow-docs.sh
+
+# Analyze required secrets for workflows
+./scripts/sync-workflow-secrets.sh
+
+# Prepare release archives
+./scripts/prepare-release.sh
+
+# Generate Docker Compose configuration
+python3 scripts/generate-compose.py --help
 ```
 
 ## Development Guidelines
@@ -129,6 +160,29 @@ on:
 - Limit permissions using `permissions:` key
 - Review third-party actions before use
 - Use environment protection rules for sensitive deployments
+
+## 🚀 Release Process
+
+The repository has an automated release workflow that:
+
+- Monitors changes to `dockerfiles/`, `configs/`, and `scripts/` directories
+- Creates versioned releases with appropriate archives
+- Supports both automatic (on CI completion) and manual triggering
+- Version bumping based on conventional commits:
+  - `feat!:` or `feature!:` → Major version bump
+  - `feat:` or `feature:` → Minor version bump
+  - Other commits → Patch version bump
+
+Release assets include:
+
+- `dockerfiles.tar.gz` - All Dockerfiles
+- `configs.tar.gz` - Configuration files (nginx.conf, etc.)
+- `scripts.tar.gz` - All scripts (Python, Bash, etc.) needed by workflows
+
+These assets are automatically downloaded by workflows when needed:
+
+- `docker-build.yml` downloads dockerfiles and configs when configured
+- `deploy-swarm.yml` downloads scripts to access `generate-compose.py`
 
 ## 🤖 Role of Claude
 

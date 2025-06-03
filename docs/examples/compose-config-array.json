@@ -1,0 +1,65 @@
+[
+  {
+    "service_name": "api",
+    "image": "myapp/api:v1.0",
+    "port": 8080,
+    "domain": "api",
+    "expose": true,
+    "networks": ["traefik-public", "backend", "shared-db"],
+    "environment": {
+      "DATABASE_URL": "postgres://db:5432/myapp",
+      "REDIS_URL": "redis://cache:6379"
+    },
+    "health_url": "/api/health",
+    "replicas": 3,
+    "resources": {
+      "limits": {"cpus": "2", "memory": "2G"},
+      "reservations": {"cpus": "1", "memory": "1G"}
+    },
+    "retry": {"attempts": 3, "interval": "100ms"},
+    "rate_limit": {"average": 100, "burst": 50}
+  },
+  {
+    "service_name": "frontend",
+    "image": "myapp/frontend:v1.0",
+    "port": 3000,
+    "domain": "app",
+    "expose": true,
+    "networks": ["traefik-public"],
+    "health_url": "/",
+    "replicas": 2
+  },
+  {
+    "service_name": "worker",
+    "image": "myapp/worker:v1.0",
+    "expose": false,
+    "networks": ["backend", "shared-db"],
+    "internal_port": 9090,
+    "environment": {
+      "DATABASE_URL": "postgres://db:5432/myapp",
+      "WORKER_THREADS": "4"
+    },
+    "volumes": [
+      {
+        "name": "worker_data",
+        "path": "/data",
+        "driver": "local",
+        "backup": "true"
+      }
+    ]
+  },
+  {
+    "service_name": "cache",
+    "image": "redis:7-alpine",
+    "expose": false,
+    "networks": ["backend"],
+    "internal_port": 6379,
+    "volumes": [
+      {
+        "name": "redis_data",
+        "path": "/data",
+        "driver": "local"
+      }
+    ]
+  }
+]

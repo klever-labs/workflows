@@ -30,7 +30,8 @@ jobs:
     outputs:
       dockerfiles_changed: ${{ steps.changes.outputs.dockerfiles }}
       configs_changed: ${{ steps.changes.outputs.configs }}
-      should_release: ${{ steps.changes.outputs.dockerfiles == 'true' || steps.changes.outputs.configs == 'true' }}
+      scripts_changed: ${{ steps.changes.outputs.scripts }}
+      should_release: ${{ steps.changes.outputs.dockerfiles == 'true' || steps.changes.outputs.configs == 'true' || steps.changes.outputs.scripts == 'true' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,8 +55,11 @@ jobs:
         id: changes-manual
         run: |
           # For manual trigger, assume we want to release
-          echo "dockerfiles=true" >> "$GITHUB_OUTPUT"
-          echo "configs=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "dockerfiles=true"
+            echo "configs=true"
+            echo "scripts=true"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Check for changes (workflow_run)
         if: github.event_name == 'workflow_run'
@@ -70,8 +74,11 @@ jobs:
 
           if [ -z "$changed_files" ]; then
             echo "No files changed or unable to get diff"
-            echo "dockerfiles=false" >> "$GITHUB_OUTPUT"
-            echo "configs=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "dockerfiles=false"
+              echo "configs=false"
+              echo "scripts=false"
+            } >> "$GITHUB_OUTPUT"
           else
             echo "Changed files:"
             echo "$changed_files"
@@ -93,17 +100,32 @@ jobs:
               echo "configs=false" >> "$GITHUB_OUTPUT"
               echo "✗ No changes in configs/"
             fi
+
+            # Check for scripts changes
+            if echo "$changed_files" | grep -q "^scripts/"; then
+              echo "scripts=true" >> "$GITHUB_OUTPUT"
+              echo "✓ Found changes in scripts/"
+            else
+              echo "scripts=false" >> "$GITHUB_OUTPUT"
+              echo "✗ No changes in scripts/"
+            fi
           fi
 
       - name: Combine change results
         id: changes
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "dockerfiles=${{ steps.changes-manual.outputs.dockerfiles }}" >> "$GITHUB_OUTPUT"
-            echo "configs=${{ steps.changes-manual.outputs.configs }}" >> "$GITHUB_OUTPUT"
+            {
+              echo "dockerfiles=${{ steps.changes-manual.outputs.dockerfiles }}"
+              echo "configs=${{ steps.changes-manual.outputs.configs }}"
+              echo "scripts=${{ steps.changes-manual.outputs.scripts }}"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "dockerfiles=${{ steps.changes-auto.outputs.dockerfiles }}" >> "$GITHUB_OUTPUT"
-            echo "configs=${{ steps.changes-auto.outputs.configs }}" >> "$GITHUB_OUTPUT"
+            {
+              echo "dockerfiles=${{ steps.changes-auto.outputs.dockerfiles }}"
+              echo "configs=${{ steps.changes-auto.outputs.configs }}"
+              echo "scripts=${{ steps.changes-auto.outputs.scripts }}"
+            } >> "$GITHUB_OUTPUT"
           fi
 
   create-release:
@@ -226,6 +248,15 @@ jobs:
               echo ""
             fi
 
+            if [ "${{ needs.check-changes.outputs.scripts_changed }}" == "true" ]; then
+              echo "## 📜 Script Updates"
+              echo ""
+              git diff --name-only "$prev_tag"..HEAD -- scripts/ | while read -r file; do
+                echo "- Updated: $file"
+              done
+              echo ""
+            fi
+
             # Add commit history
             echo "## 📝 Commits"
             echo ""
@@ -236,6 +267,7 @@ jobs:
             echo ""
             echo "- **dockerfiles.tar.gz**: Contains all Dockerfiles for different build flavors"
             echo "- **configs.tar.gz**: Contains configuration files (nginx.conf, etc.)"
+            echo "- **scripts.tar.gz**: Contains Python scripts used by workflows"
             echo ""
             echo "## 🚀 Usage"
             echo ""
@@ -269,6 +301,7 @@ jobs:
           files: |
             dockerfiles.tar.gz
             configs.tar.gz
+            scripts.tar.gz
           draft: false
           prerelease: false
 
