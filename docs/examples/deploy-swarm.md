@@ -1,16 +1,28 @@
 # Deploy to Docker Swarm Examples
 
-This document provides examples of using the `deploy-swarm.yml` reusable workflow for deploying applications to
-Docker Swarm via Portainer.
+This document provides examples of using the modular deployment workflows for Docker Swarm via Portainer.
 
 ## Table of Contents
 
+- [Overview](#overview)
 - [Basic Usage](#basic-usage)
+- [Using Pre-built Compose Files](#using-pre-built-compose-files)
 - [Deploy After Docker Build](#deploy-after-docker-build)
 - [Multi-Service Deployment](#multi-service-deployment)
 - [Environment-Specific Deployments](#environment-specific-deployments)
 - [Advanced Configuration](#advanced-configuration)
+- [Using Modular Workflows Directly](#using-modular-workflows-directly)
 - [Troubleshooting](#troubleshooting)
+
+## Overview
+
+The deployment system consists of three workflows:
+
+1. **`deploy-swarm.yml`** - High-level orchestrator (simplified interface)
+2. **`generate-compose.yml`** - Generates Docker Compose files from JSON config
+3. **`deploy-compose.yml`** - Deploys compose files to Docker Swarm
+
+You can use either the simplified `deploy-swarm.yml` or combine the modular workflows for more control.
 
 ## Basic Usage
 
@@ -28,11 +40,39 @@ jobs:
     uses: klever-labs/workflows/.github/workflows/deploy-swarm.yml@main
     with:
       repository_name: 'my-app'
-      service_names: 'my-app'
-      image_urls: '{"my-app":"gcr.io/my-project/my-app:latest"}'
-      domains_prefix: 'my-app'
-      fqdn: 'example.com'
-      server_ports: '3000'
+      services_config: |
+        [
+          {
+            "service_name": "my-app",
+            "image": "gcr.io/my-project/my-app:latest",
+            "port": 3000,
+            "domain": "my-app",
+            "replicas": 2
+          }
+        ]
+      environment_type: 'prod'
+    secrets:
+      portainer_url: ${{ secrets.PORTAINER_URL }}
+      portainer_api_token: ${{ secrets.PORTAINER_API_TOKEN }}
+```
+
+## Using Pre-built Compose Files
+
+If you already have a docker-compose.yml file:
+
+```yaml
+name: Deploy with Existing Compose
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    uses: klever-labs/workflows/.github/workflows/deploy-swarm.yml@main
+    with:
+      repository_name: 'my-app'
+      compose_file: 'docker/compose.prod.yml'  # Path to your compose file
       environment_type: 'prod'
     secrets:
       portainer_url: ${{ secrets.PORTAINER_URL }}
@@ -66,14 +106,18 @@ jobs:
     uses: klever-labs/workflows/.github/workflows/deploy-swarm.yml@main
     with:
       repository_name: 'my-app'
-      service_names: 'my-app'
-      image_urls: |
-        {
-          "my-app": "${{ needs.build.outputs.image }}"
-        }
-      domains_prefix: 'app'
-      fqdn: 'mycompany.com'
-      server_ports: '8080'
+      services_config: |
+        [
+          {
+            "service_name": "my-app",
+            "image": "${{ needs.build.outputs.image }}",
+            "port": 8080,
+            "domain": "app",
+            "replicas": ${{ github.ref == 'refs/heads/main' && '3' || '1' }},
+            "health_url": "/health",
+            "enable_retry": true
+          }
+        ]
       environment_type: ${{ github.ref == 'refs/heads/main' && 'prod' || 'staging' }}
     secrets:
       portainer_url: ${{ secrets.PORTAINER_URL }}
@@ -95,30 +139,49 @@ jobs:
     uses: klever-labs/workflows/.github/workflows/deploy-swarm.yml@main
     with:
       repository_name: 'my-platform'
-      service_names: 'api,frontend,worker'
-      image_urls: |
-        {
-          "api": "gcr.io/my-project/api:v1.2.3",
-          "frontend": "gcr.io/my-project/frontend:v2.0.0",
-          "worker": "gcr.io/my-project/worker:v1.0.5"
-        }
-      domains_prefix: 'api,app,worker'
-      fqdn: 'platform.io'
-      server_ports: '3000,8080,9000'
-      replica_count: '2'
-      service_envs: |
-        {
-          "api": {
-            "DATABASE_URL": "postgres://...",
-            "REDIS_URL": "redis://..."
+      services_config: |
+        [
+          {
+            "service_name": "api",
+            "image": "gcr.io/my-project/api:v1.2.3",
+            "port": 3000,
+            "domain": "api",
+            "replicas": 2,
+            "environment": {
+              "DATABASE_URL": "postgres://...",
+              "REDIS_URL": "redis://..."
+            },
+            "health_url": "/health",
+            "enable_retry": true,
+            "enable_rate_limit": true
           },
-          "worker": {
-            "QUEUE_NAME": "jobs",
-            "CONCURRENCY": "5"
+          {
+            "service_name": "frontend",
+            "image": "gcr.io/my-project/frontend:v2.0.0",
+            "port": 8080,
+            "domain": "app",
+            "replicas": 3,
+            "health_url": "/",
+            "resources": {
+              "limits": { "cpus": "1.0", "memory": "1G" }
+            }
+          },
+          {
+            "service_name": "worker",
+            "image": "gcr.io/my-project/worker:v1.0.5",
+            "expose": false,
+            "replicas": 2,
+            "environment": {
+              "QUEUE_NAME": "jobs",
+              "CONCURRENCY": "5"
+            },
+            "health_url": "/status",
+            "resources": {
+              "limits": { "cpus": "2.0", "memory": "2G" }
+            }
           }
-        }
-      health_checks: true
-      health_urls: '/health,/,/status'
+        ]
+      environment_type: 'prod'
     secrets:
       portainer_url: ${{ secrets.PORTAINER_URL }}
       portainer_api_token: ${{ secrets.PORTAINER_API_TOKEN }}
@@ -140,14 +203,25 @@ jobs:
     uses: klever-labs/workflows/.github/workflows/deploy-swarm.yml@main
     with:
       repository_name: 'my-app'
-      service_names: 'my-app'
-      image_urls: |
-        {
-          "my-app": "gcr.io/my-project/my-app:${{ github.sha }}"
-        }
-      domains_prefix: 'app'
-      fqdn: 'company.dev'
-      server_ports: '3000'
+      services_config: |
+        [
+          {
+            "service_name": "my-app",
+            "image": "gcr.io/my-project/my-app:${{ github.sha }}",
+            "port": 3000,
+            "domain": "app",
+            "replicas": ${{ github.ref == 'refs/heads/main' && '3' || '1' }},
+            "env": "${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/develop' && 'dev' || 'staging' }}",
+            "resource_limits": ${{ github.ref == 'refs/heads/main' }},
+            "health_checks": true,
+            "enable_retry": ${{ github.ref == 'refs/heads/main' }},
+            "enable_rate_limit": ${{ github.ref == 'refs/heads/main' }},
+            "environment": {
+              "NODE_ENV": "${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}",
+              "LOG_LEVEL": "${{ github.ref == 'refs/heads/main' && 'error' || 'debug' }}"
+            }
+          }
+        ]
       environment_type: |
         ${{ 
           github.ref == 'refs/heads/main' && 'prod' ||
@@ -155,10 +229,6 @@ jobs:
           github.ref == 'refs/heads/staging' && 'staging' ||
           'dev'
         }}
-      # Different replicas per environment
-      replica_count: ${{ github.ref == 'refs/heads/main' && '3' || '1' }}
-      # Resource limits only in production
-      resource_limits: ${{ github.ref == 'refs/heads/main' }}
     secrets:
       portainer_url: ${{ secrets.PORTAINER_URL }}
       portainer_api_token: ${{ secrets.PORTAINER_API_TOKEN }}
@@ -358,17 +428,112 @@ jobs:
     uses: klever-labs/workflows/.github/workflows/deploy-swarm.yml@main
     with:
       repository_name: 'my-app'
-      service_names: 'my-app'
-      image_urls: |
-        {
-          "my-app": "gcr.io/my-project/my-app:${{ github.event.workflow_run.head_sha }}"
-        }
-      domains_prefix: 'app'
-      fqdn: 'production.com'
-      server_ports: '443'
+      services_config: |
+        [
+          {
+            "service_name": "my-app",
+            "image": "gcr.io/my-project/my-app:${{ github.event.workflow_run.head_sha }}",
+            "port": 443,
+            "domain": "app",
+            "replicas": 3,
+            "resource_limits": true,
+            "health_checks": true,
+            "enable_monitoring": true
+          }
+        ]
       environment_type: 'prod'
-      replica_count: '3'
-      resource_limits: true
+    secrets:
+      portainer_url: ${{ secrets.PORTAINER_URL }}
+      portainer_api_token: ${{ secrets.PORTAINER_API_TOKEN }}
+```
+
+## Using Modular Workflows Directly
+
+For more control, you can use the modular workflows separately:
+
+### Generate and Deploy Separately
+
+```yaml
+name: Custom Deployment Pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate:
+    uses: klever-labs/workflows/.github/workflows/generate-compose.yml@main
+    with:
+      services_config: |
+        [
+          {
+            "service_name": "api",
+            "image": "myapp/api:latest",
+            "port": 8080,
+            "domain": "api",
+            "replicas": 2,
+            "secrets": ["api-key", "db-password"]
+          }
+        ]
+      environment_type: 'prod'
+      artifact_name: 'compose-custom'
+
+  validate:
+    needs: generate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download compose artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-custom
+          
+      - name: Validate compose file
+        run: |
+          cat docker-compose.yml
+          docker compose config
+
+  deploy:
+    needs: [generate, validate]
+    uses: klever-labs/workflows/.github/workflows/deploy-compose.yml@main
+    with:
+      stack_name: 'my-app-prod'
+      compose_artifact: 'compose-custom'
+      environment_type: 'prod'
+      pre_deploy_commands: |
+        [
+          "echo 'Running pre-deployment checks'",
+          "date"
+        ]
+    secrets:
+      portainer_url: ${{ secrets.PORTAINER_URL }}
+      portainer_api_token: ${{ secrets.PORTAINER_API_TOKEN }}
+```
+
+### Direct Compose Deployment
+
+If you manage your own compose files:
+
+```yaml
+name: Deploy Custom Compose
+
+on:
+  push:
+    paths:
+      - 'docker-compose.prod.yml'
+    branches: [main]
+
+jobs:
+  deploy:
+    uses: klever-labs/workflows/.github/workflows/deploy-compose.yml@main
+    with:
+      stack_name: 'production-stack'
+      compose_file: 'docker-compose.prod.yml'
+      environment_type: 'prod'
+      prune_services: true
+      post_deploy_commands: |
+        [
+          "echo 'Stack deployed successfully'",
+          "curl -X POST https://monitoring.example.com/deploy-event"
+        ]
     secrets:
       portainer_url: ${{ secrets.PORTAINER_URL }}
       portainer_api_token: ${{ secrets.PORTAINER_API_TOKEN }}

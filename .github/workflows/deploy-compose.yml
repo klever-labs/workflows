@@ -49,6 +49,10 @@ on:
         required: false
         description: 'Commands to run after deployment (e.g., notifications, cleanup)'
         default: ''
+      use_twingate:
+        type: boolean
+        default: true
+        description: 'Use Twingate for secure access (requires service account key)'
     secrets:
       portainer_url:
         required: true
@@ -110,18 +114,9 @@ jobs:
           echo "✅ Found docker-compose.yml"
           echo "File size: $(stat -c%s docker-compose.yml 2>/dev/null || stat -f%z docker-compose.yml) bytes"
 
-      - name: Check Twingate availability
-        id: check-twingate
-        run: |
-          if [ -n "${{ secrets.twingate_sa }}" ]; then
-            echo "has_twingate=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_twingate=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Setup Twingate
         uses: twingate/github-action@v1
-        if: steps.check-twingate.outputs.has_twingate == 'true'
+        if: inputs.use_twingate
         with:
           service-key: ${{ secrets.twingate_sa }}
 

@@ -27,6 +27,16 @@ The script generates Docker Compose files with:
 - **Network separation** for security
 - **Volume persistence** with proper labeling
 
+### Workflow Integration
+
+This script is used by the GitHub Actions workflows:
+
+- **`generate-compose.yml`** workflow automatically downloads and uses this script
+- **`deploy-swarm.yml`** workflow uses it internally when `services_config` is provided
+- The script is packaged in releases as `scripts.tar.gz` for workflow consumption
+
+When using the workflows, you don't need to install anything - the workflow handles it automatically.
+
 ## Installation
 
 The script requires Python 3.6+ with PyYAML:
@@ -61,7 +71,7 @@ python scripts/generate-compose.py \
 
 The script supports two configuration formats:
 
-### 1. Array Format (Recommended)
+### 1. Array Format (Recommended for Workflows)
 
 ```json
 [
@@ -79,7 +89,7 @@ The script supports two configuration formats:
 ]
 ```
 
-### 2. Object Format (Legacy)
+### 2. Object Format (Legacy - Command Line Compatible)
 
 ```json
 {
